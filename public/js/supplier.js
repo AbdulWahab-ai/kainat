@@ -1,6 +1,6 @@
 // Supplier side: request inbox, quoting, shop, item editing.
 import { route, render, shell, navFor, api, esc, rs, num, ago, day, toast, state, run, $, $$, catLabel, modelName,
-  emptyState, statusBadge, refreshMe, freshness, icons, poll, ratingBadge } from './core.js';
+  emptyState, statusBadge, refreshMe, freshness, icons, poll, ratingBadge, sendGuarded } from './core.js';
 
 function buyerLine(b) {
   if (!b) return '';
@@ -166,7 +166,8 @@ route('/s/quote/:id', async ({ params, render }) => {
     const body = { price: f.price.value, qty: f.qty.value, token_pct: f.token_pct.value, lead_days: f.lead_days.value,
       share: f.share.checked, visibility: f.visibility.value, model_id: f.model_id?.value || undefined };
     run(e.submitter, async () => {
-      await api('POST', `/api/requests/${params.id}/quote`, body);
+      const sent = await sendGuarded((mask) => api('POST', `/api/requests/${params.id}/quote`, { ...body, mask }), { text: body.note || '', partner: d.buyer.name });
+      if (!sent) return;
       toast(body.share && (d.model || body.model_id) ? 'Bid placed and added to your shop' : 'Bid placed');
       location.hash = `#/s/quote/${params.id}?t=${Date.now()}`;
     });

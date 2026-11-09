@@ -1,4 +1,5 @@
 // Shared front-end plumbing: API calls, formatting, routing, page shell, toasts and dialogs.
+import { phoneIn, maskPhones } from './phone.js';
 export const state = { me: null, counts: {} };
 
 export const $ = (sel, el = document) => el.querySelector(sel);
@@ -49,10 +50,60 @@ export async function api(method, path, body) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     if (res.status === 401 && !path.startsWith('/api/auth')) { state.me = null; location.hash = '#/login'; }
-    throw new Error(data.error || `Request failed (${res.status})`);
+    const err = new Error(data.error || `Request failed (${res.status})`);
+    err.status = res.status; err.code = data.code; err.data = data;
+    throw err;
   }
   return data;
 }
+
+// ---------- phone numbers stay on Kainat ----------
+// The warning shown when a message with a phone number is refused. Resolves 'mask' (send it without the number)
+// or 'edit' (go back and change it).
+export function numberWarning({ role, text, attempts = 1, partner = '' }) {
+  const sup = role === 'supplier';
+  return new Promise((resolve) => {
+    const root = $('#modal-root');
+    root.innerHTML = `<div class="modal-backdrop"><div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="nw-title" aria-describedby="nw-body">
+      <div class="row" style="gap:12px"><span class="warn-dot" aria-hidden="true">!</span><h2 id="nw-title" style="margin:0">Phone numbers stay off Kainat</h2></div>
+      ${text ? `<p class="bubble me" style="margin:0;max-width:none">${esc(maskPhones(text, '•••• •••••••'))}</p>` : ''}
+      <div id="nw-body" class="stack" style="gap:8px">
+        <p class="small" style="margin:0">When a conversation moves outside Kainat, <strong>the risk goes with it</strong>. There is no order record, no help from our team if something goes wrong, and no protection for the token money.</p>
+        <p class="small" style="margin:0">${sup
+          ? 'Sharing numbers to take buyers off Kainat <strong>can harm your supplier profile</strong>. It is reviewed by the Kainat team and can lower where you appear in buyer requests.'
+          : `Moving deals off Kainat <strong>can also harm ${partner ? esc(partner) + '’s' : 'the supplier’s'} profile</strong>, because off-platform contact is reviewed by the Kainat team.`}</p>
+        ${attempts >= 2 ? `<p class="card warn small" style="margin:0">${sup ? `This is attempt ${attempts} in 30 days. The Kainat team has been notified.` : 'Repeated attempts are reviewed by the Kainat team.'}</p>` : ''}
+      </div>
+      <button type="button" class="btn primary block" data-v="mask">Send without the number</button>
+      <button type="button" class="btn block" data-v="edit">Edit message</button>
+    </div></div>`;
+    const close = (v) => { root.innerHTML = ''; resolve(v); };
+    root.querySelectorAll('[data-v]').forEach((b) => { b.onclick = () => close(b.dataset.v); });
+    $('.modal-backdrop', root).onclick = (e) => { if (e.target.classList.contains('modal-backdrop')) close('edit'); };
+    setTimeout(() => root.querySelector('[data-v=mask]')?.focus(), 30);
+  });
+}
+
+// Sends something the other side will read. If the server refuses it for a phone number, shows the warning and,
+// when the person chooses, sends it again without the number. Returns the API result, or null if they chose to edit.
+export async function sendGuarded(send, { text = '', partner = '' } = {}) {
+  try {
+    return await send(false);
+  } catch (e) {
+    if (e.code !== 'phone_number') throw e;
+    const choice = await numberWarning({ role: e.data.role, text, attempts: e.data.attempts, partner });
+    return choice === 'mask' ? send(true) : null;
+  }
+}
+
+// A live hint under a text box: appears as soon as what is typed contains a phone number.
+export function watchPhone(input, hint) {
+  if (!input || !hint) return;
+  const check = () => { const bad = phoneIn(input.value); hint.hidden = !bad; input.classList.toggle('flagged', bad); };
+  input.addEventListener('input', check);
+  check();
+}
+export const phoneHintHtml = (id) => `<p class="numhint" id="${id}" hidden role="status">Phone numbers can’t be shared on Kainat. Keep the conversation here so the order stays protected.</p>`;
 
 let toastTimer;
 let toastSeq = 0;
@@ -125,6 +176,7 @@ export const icons = {
   bolt: ic('<path d="M11 2L4 11h5l-1 7 7-9h-5l1-7z"/>', 16),
   msg: ic('<path d="M3 5h14v9H8l-4 3v-3H3z"/>', 18),
   bell: ic('<path d="M5 14V9a5 5 0 0 1 10 0v5l1.5 2h-13z"/><path d="M8.5 18a1.6 1.6 0 0 0 3 0"/>'),
+  lock: ic('<rect x="4.5" y="9" width="11" height="8" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/>', 14),
 };
 
 // Stars as text, e.g. "★★★★☆".

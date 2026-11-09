@@ -12,8 +12,11 @@ const DEMO = [
   ['Admin', 'Kainat team', 'Admin console', '03000000000'],
 ];
 
+let config = null;
 route('/login', async ({ render }) => {
   if (state.me) { location.replace(homeFor(state.me)); return; }
+  // Demo accounts and on-screen codes exist only on a development server, never in production.
+  config = config || await api('GET', '/api/config').catch(() => ({ demo: false }));
   render(`<div class="shell"><main class="content" style="padding-top:32px">
     <img class="logo" src="/icon.svg" alt="Kainat">
     <div class="stack"><h1 style="font-size:26px">Buy and sell solar equipment without the phone calls</h1>
@@ -27,15 +30,15 @@ route('/login', async ({ render }) => {
       <button class="btn primary lg block">Send code</button>
       <p class="tiny muted center">One account per phone number.</p>
     </form>
-    <div class="sep"></div>
+    ${config.demo ? `<div class="sep"></div>
     <div class="stack"><h2>Demo accounts</h2><p class="small muted">Tap one to sign in. Any other number starts a new sign-up.</p>
       <div class="demo-list">${DEMO.map(([role, name, sub, phone]) => `<button type="button" data-phone="${phone}">
         <span class="stack" style="gap:2px"><span class="strong">${esc(name)}</span><span class="small muted">${esc(sub)}</span></span>
-        <span class="badge ${role === 'Buyer' ? 'blue' : role === 'Admin' ? 'dark' : 'green'}">${role}</span></button>`).join('')}</div></div>
+        <span class="badge ${role === 'Buyer' ? 'blue' : role === 'Admin' ? 'dark' : 'green'}">${role}</span></button>`).join('')}</div></div>` : ''}
   </main></div>`);
   const start = async (phone, channel, btn) => run(btn, async () => {
     const r = await api('POST', '/api/auth/start', { phone, channel });
-    sessionStorage.setItem('devCode', r.devCode);
+    if (r.devCode) sessionStorage.setItem('devCode', r.devCode); else sessionStorage.removeItem('devCode');
     location.hash = `#/otp?phone=${r.phone}&via=${r.channel}`;
   });
   $('#f').onsubmit = (e) => { e.preventDefault(); start($('#phone').value, e.target.channel.value, e.submitter); };
@@ -47,13 +50,13 @@ route('/otp', async ({ query, render }) => {
   const code = sessionStorage.getItem('devCode') || '';
   render(shell({ title: 'Enter your code', back: '#/login', body: `
     <p class="muted">Sent on ${query.via === 'sms' ? 'SMS' : 'WhatsApp'} to ${esc(phoneText(phone))}</p>
-    <div class="card tint"><span class="small">Local demo: no message is really sent. Your code is</span><span class="big" style="letter-spacing:.2em">${esc(code)}</span></div>
+    ${code ? `<div class="card tint"><span class="small">Local demo: no message is really sent. Your code is</span><span class="big" style="letter-spacing:.2em">${esc(code)}</span></div>` : ''}
     <form id="f" class="stack" style="gap:14px">
       <label class="field"><span class="flabel">6-digit code</span><input id="code" class="otp" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required></label>
       <button class="btn primary lg block">Verify</button>
-      <button type="button" id="fill" class="btn block">Fill the demo code</button>
+      ${code ? '<button type="button" id="fill" class="btn block">Fill the demo code</button>' : '<p class="tiny muted center">The code expires in 10 minutes. Never share it with anyone, including the Kainat team.</p>'}
     </form>` }));
-  $('#fill').onclick = () => { $('#code').value = code; $('#f').requestSubmit(); };
+  $('#fill')?.addEventListener('click', () => { $('#code').value = code; $('#f').requestSubmit(); });
   $('#f').onsubmit = (e) => {
     e.preventDefault();
     run(e.submitter, async () => {

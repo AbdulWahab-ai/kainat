@@ -1,6 +1,6 @@
 // Screens both sides use: deals list, order page, notifications, simulated WhatsApp, profile.
 import { route, render, shell, navFor, api, esc, rs, num, ago, day, toast, state, run, $, $$, typeLabel, emptyState, statusBadge,
-  refreshMe, ask, confirmBox, fileToDataUrl, icons, homeFor, starText } from './core.js';
+  refreshMe, ask, confirmBox, fileToDataUrl, icons, homeFor, starText, sendGuarded, watchPhone, phoneHintHtml } from './core.js';
 
 const shortDate = (iso) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 
@@ -86,7 +86,9 @@ route('/order/:id', async ({ params, query, render }) => {
       <section class="card"><div class="row between top"><a class="strong" style="color:var(--ink)" href="${isBuyer ? '#/b/supplier/' + other.id : 'javascript:void 0'}">${esc(other.name)}</a>
         ${other.with_you > 0 ? `<span class="badge green">Traded ${other.with_you}×</span>` : `<span class="badge">${other.deals} deal${other.deals === 1 ? '' : 's'} on app</span>`}</div>
         <span class="small muted">${esc(typeLabel[other.supplier_type] || (other.role === 'buyer' ? 'Installer' : ''))} · ${esc(other.city || '')}</span>
-        ${other.phone ? `<span class="small">${esc(other.contact || '')} · <a href="tel:${esc(other.phone)}">${esc(other.phone)}</a></span>` : ''}</section>
+        ${me.is_admin ? (other.phone ? `<span class="small">Admin view: ${esc(other.contact || '')} · ${esc(other.phone)}</span>` : '')
+          : `<div class="row between" style="gap:8px"><span class="private-note">${icons.lock} Number hidden. Contact stays on Kainat so this order keeps its record and protection.</span>
+            <a class="btn small" href="#/chat/new?with=${other.id}">${icons.msg} Message</a></div>`}</section>
       <section class="card"><span class="label-caps">Order</span>
         <div class="row between"><span class="strong">${esc(o.model_name || 'Item')}</span><span>× ${num(o.qty)}</span></div>
         <div class="row between small muted"><span>Locked price</span><span>${rs(o.price)} each</span></div>
@@ -107,7 +109,7 @@ route('/order/:id', async ({ params, query, render }) => {
       ${me.is_admin && o.rating?.all?.length ? `<section class="card"><span class="label-caps">Ratings (admin view)</span>${o.rating.all.map((x) => `<span class="small">${x.rater_role === 'buyer' ? 'Buyer' : 'Supplier'}: <span class="star-text">${starText(x.stars)}</span> ${x.revealed_at ? '' : '<span class="badge">hidden</span>'} ${esc(x.comment || '')}</span>`).join('')}</section>` : ''}
       <section class="card"><span class="label-caps">Messages</span>
         <div class="stack">${o.messages.map((m) => `<div class="bubble ${m.sender_id === me.id ? 'me' : 'them'}"><span class="tiny strong">${esc(m.sender_name || 'Kainat')}</span><br>${esc(m.body)}<div class="meta">${ago(m.at)}</div></div>`).join('') || '<span class="small muted">No messages yet.</span>'}</div>
-        ${isBuyer || isSupplier ? `<form id="msg" class="composer"><input name="body" placeholder="Message ${esc(other.name)}" aria-label="Message"><button class="btn primary" aria-label="Send">${icons.send}</button></form>` : ''}</section>
+        ${isBuyer || isSupplier ? `${phoneHintHtml('ordhint')}<form id="msg" class="composer"><input name="body" placeholder="Message ${esc(other.name)}" aria-label="Message"><button class="btn primary" aria-label="Send">${icons.send}</button></form>` : ''}</section>
       ${(isBuyer || isSupplier) && !o.disputed && !['cancelled'].includes(o.status) ? '<button type="button" class="btn danger block" data-act="flag">Flag a problem</button>' : ''}`,
   }));
   const reload = () => { location.hash = `#/order/${o.id}?t=${Date.now()}`; };
@@ -137,8 +139,12 @@ route('/order/:id', async ({ params, query, render }) => {
     e.preventDefault();
     const body = e.target.body.value.trim();
     if (!body) return;
-    run(e.submitter, async () => { await api('POST', `/api/orders/${o.id}/messages`, { body }); reload(); });
+    run(e.submitter, async () => {
+      const sent = await sendGuarded((mask) => api('POST', `/api/orders/${o.id}/messages`, { body, mask }), { text: body, partner: other.name });
+      if (sent) reload(); else e.target.body.focus();
+    });
   });
+  watchPhone($('#msg')?.body, $('#ordhint'));
   $('#rate')?.addEventListener('submit', (e) => {
     e.preventDefault();
     const f = e.target;
@@ -276,7 +282,8 @@ route('/profile', async ({ query, render }) => {
         <span class="small"><span class="star-text" aria-label="${x.stars} of 5 stars">${starText(x.stars)}</span> · ${esc(x.rater_name)} · ${shortDate(x.created_at)}</span>
         ${x.comment ? `<span class="small">“${esc(x.comment)}”</span>` : ''}${x.reply ? `<div class="reply small"><span class="strong">Your reply:</span> ${esc(x.reply)}</div>` : ''}</div>`).join('')}</section>` : ''}
       <a class="btn block" href="#/whatsapp">Open simulated WhatsApp</a>
-      <button type="button" id="out" class="btn block">Sign out</button>`,
+      <button type="button" id="out" class="btn block">Sign out</button>
+      <button type="button" id="outall" class="btn block" style="border:0">Sign out on all devices</button>`,
   }));
   $('#f').onsubmit = (e) => {
     e.preventDefault();
@@ -295,5 +302,9 @@ route('/profile', async ({ query, render }) => {
     if (query.tab === 'alerts') np.scrollIntoView({ block: 'start' });
   }
   $('#out').onclick = async () => { await api('POST', '/api/auth/logout'); state.me = null; location.hash = '#/login'; };
+  $('#outall').onclick = (e) => run(e.target, async () => {
+    if (!(await confirmBox('Sign out on all devices?', 'This signs you out on every phone and computer, including this one. You will need a new code to sign in.', 'Sign out everywhere'))) return;
+    await api('POST', '/api/auth/logout-all'); state.me = null; location.hash = '#/login';
+  });
   void homeFor;
 });

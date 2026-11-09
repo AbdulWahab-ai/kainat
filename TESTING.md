@@ -1,13 +1,13 @@
 # Kainat test report
 
-First written 5 November 2026. Updated 9 November 2026 for notifications and ratings: the full suite of 277 tests and checks passes.
+First written 5 November 2026. Updated 9 November 2026 for notifications, ratings and security hardening: the full suite of 308 tests and checks passes.
 
 | Layer | Tests | Result | What it covers |
 | --- | --- | --- | --- |
-| Unit | 35 | Pass | Phone normalisation, number and text parsing, price ranges, city matching, WhatsApp price parsing, date and money formatting, page-routing rules, database upgrades, transactions, Pakistan time and quiet hours, alert links |
-| Integration (API) | 123 | Pass | All 71 API routes. Each is checked for anonymous access (401), wrong role (403), validation errors, state rules, privacy and success paths. Also every notification rule and scheduled job, using a server clock the tests move forward |
+| Unit | 39 | Pass | Phone normalisation, number and text parsing, price ranges, city matching, WhatsApp price parsing, date and money formatting, page-routing rules, database upgrades, transactions, Pakistan time and quiet hours, alert links |
+| Integration (API) | 144 | Pass | All 73 API routes. Each is checked for anonymous access (401), wrong role (403), validation errors, state rules, privacy and success paths. Also every notification rule and scheduled job, using a server clock the tests move forward |
 | Smoke (API journey) | 50 checks | Pass | One long buyer-to-supplier-to-admin journey, kept from the first build |
-| End-to-end (browser) | 69 | Pass | All 35 screens for every role, on a phone and a desktop, driven in headless Chromium |
+| End-to-end (browser) | 75 | Pass | All 35 screens for every role, on a phone and a desktop, driven in headless Chromium |
 
 ## Notifications and ratings (added 9 November)
 
@@ -71,6 +71,33 @@ Each test file starts its own server on a free port with a throwaway database, s
 - **Orders:** every allowed and disallowed status change.
 - **Admin:** model merges that would collide.
 
+## Security hardening (added 9 November)
+
+- **Sign-in codes:**
+  - Production never returns the code, and sends it through the configured gateway.
+  - Without a gateway, sign-in refuses to start.
+  - Wrong codes are limited to 5, with the tries left shown.
+  - Code requests are limited per number (30 seconds apart, a few an hour) and per network address.
+- **Sessions:**
+  - They end after 30 days without use and 90 days after sign-in, and stay alive while used.
+  - Sign out everywhere ends every session for the number.
+  - Cookies are Secure only behind a trusted HTTPS proxy.
+  - The cleanup job removes old code requests and sessions.
+- **Uploads:** a script renamed as an image and a PNG named as a PDF are refused; real images and PDFs are accepted.
+- **Phone numbers:**
+  - Refused (422, with the role and attempt count the warning needs) in chat, order messages, requests, order addresses and notes, and quote notes. "Send without the number" saves the message masked and tells both sides.
+  - Refused outright in business details, ratings and replies.
+  - Hidden in decline reasons and flagged problems.
+  - Not read as a price when sent by WhatsApp.
+  - Never shown to another business, even after an order.
+  - Attempts are counted for the admin without storing the number.
+- **Detector:** 28 cases, covering numbers in every common form and prices that must not match.
+- **Browser:**
+  - the typing hint, the warning dialog for each side, Edit and Send without the number
+  - hidden numbers on order and supplier pages
+  - sign out on all devices
+  - a production sign-in page without demo accounts
+
 ## Bugs found and fixed
 
 Each fix addresses the root cause and has a test that would catch it coming back.
@@ -97,6 +124,7 @@ Found while building notifications and ratings (9 November):
 | 11 | A WhatsApp star tap that completed both ratings replied "stays hidden until they rate too" | Wrong message: both ratings were already shown | The reply says whether the ratings are now shown |
 | 12 | The "rated your deal" message doubled the punctuation after a comment | Read as `…day.”.` | The comment is quoted at the end of its own sentence |
 | 13 | The browser tests' toast check could read the previous toast while it was still on screen | Tests failed now and then, depending on timing | Each toast carries a number; the check waits for a newer one |
+| 15 | Masking a WhatsApp link hid the number inside it first, leaving half the link behind ("[number hidden] hidden]") | A masked message looked broken | Links are hidden before numbers; a unit test covers it |
 | 14 | The morning price check ran whenever the server first ran its jobs after 8 am | A server restarted at 2:30 pm sent "Good morning" in the afternoon | The check runs only between 8 and 11 am Pakistan time; otherwise it waits for the next morning |
 
 ## Known limits

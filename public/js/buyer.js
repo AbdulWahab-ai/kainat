@@ -1,6 +1,6 @@
 // Buyer side: search, compare, supplier profile, requests, ordering.
 import { route, render, shell, navFor, api, esc, rs, num, ago, day, toast, state, run, $, $$, catLabel, typeLabel, modelName,
-  emptyState, statusBadge, refreshMe, priceText, bizBadges, fileToDataUrl, icons, todayISO, until, plural, poll, starText } from './core.js';
+  emptyState, statusBadge, refreshMe, priceText, bizBadges, fileToDataUrl, icons, todayISO, until, plural, poll, starText, sendGuarded } from './core.js';
 
 const CATS = [['', 'All'], ['panel', 'Panels'], ['inverter', 'Inverters'], ['battery', 'Batteries'], ['structure', 'Structures'], ['cable', 'Cables']];
 
@@ -98,7 +98,8 @@ route('/b/supplier/:id', async ({ params, render }) => {
       <section class="card"><span class="label-caps">About</span>
         <span class="small">${esc(typeLabel[s.supplier_type] || '')} · ${s.years ? s.years + ' years in business · ' : ''}member since ${new Date(s.created_at).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}</span>
         <span class="small">Delivers to ${esc(s.delivery_cities || s.city)}</span>
-        ${s.phone ? `<span class="small">${esc(s.contact || '')} · ${esc(s.phone)}</span><span class="small">${esc(s.address || '')}</span>` : '<span class="small muted">Contact details show once you have an order with them.</span>'}
+        ${s.address ? `<span class="small">${esc(s.contact || '')}${s.contact ? ' · ' : ''}${esc(s.address)}</span>` : ''}
+        <span class="private-note">${icons.lock} Phone numbers stay private on Kainat. <a href="#/chat/new?with=${s.id}">Message them here</a>.</span>
       </section>
       ${d.history.length ? `<section class="card"><span class="label-caps">Your history with them</span>
         ${d.history.map((h) => `<a class="row between small" href="#/order/${h.id}" style="color:inherit;text-decoration:none"><span>${esc((h.brand || '') + ' ' + (h.name || ''))} × ${h.qty}</span>
@@ -181,7 +182,8 @@ route('/b/request/new', async ({ query, render }) => {
     if (listing) body.listing_id = listing.id;
     if (!listing && !body.model_id && $('#free').classList.contains('hidden')) { toast('Pick a model from the list, or choose “Any model”', 'error'); return; }
     run(e.submitter, async () => {
-      const r = await api('POST', '/api/requests', body);
+      const r = await sendGuarded((mask) => api('POST', '/api/requests', { ...body, mask }), { text: body.description || '' });
+      if (!r) { f.description?.focus(); return; }
       toast(r.sent_to ? `Sent to ${r.sent_to} supplier${r.sent_to > 1 ? 's' : ''}${r.in_stock ? `. ${r.in_stock} ha${r.in_stock > 1 ? 've' : 's'} it in stock now` : ''}${r.later ? `. ${r.later} more get it in 30 minutes if bids are slow.` : '.'}` : 'Posted. No matching supplier yet; our team will find one.');
       location.hash = `#/b/request/${r.id}`;
     });
@@ -301,7 +303,7 @@ route('/b/order/new', async ({ query, render }) => {
           <div class="grid2"><label class="field"><span class="flabel">Label</span><input name="address_label" placeholder="Site: Model Town"></label>
           <label class="check" style="align-self:end;height:46px"><input type="checkbox" name="save_address" checked>Save it</label></div></div>
         <div class="grid2"><label class="field"><span class="flabel">Needed by</span><input name="needed_by" type="date" min="${todayISO()}" value="${esc(item.needed_by || '')}"></label>
-          <label class="field"><span class="flabel">Note</span><input name="note" placeholder="Call site manager"></label></div>
+          <label class="field"><span class="flabel">Note</span><input name="note" placeholder="Gate at the back, deliver after 2 pm"></label></div>
         <section class="card"><div class="row between"><span>Total</span><span class="strong" id="total"></span></div>
           <div class="row between"><span>Token money to pay (${item.token_pct}%)</span><span class="strong" style="color:var(--brand-dark)" id="token"></span></div>
           <span class="tiny muted">Pay the token to the supplier’s bank account as usual, then upload the screenshot. Kainat does not hold money yet.</span></section>
@@ -335,7 +337,8 @@ route('/b/order/new', async ({ query, render }) => {
         save_address: f.addr.value === '__new' && f.save_address.checked, address_label: f.address_label.value,
         token_proof: file ? await fileToDataUrl(file) : undefined };
       body[item.kind === 'quote' ? 'quote_id' : 'listing_id'] = item.id;
-      const r = await api('POST', '/api/orders', body);
+      const r = await sendGuarded((mask) => api('POST', '/api/orders', { ...body, mask }), { text: [body.address, body.note].filter(Boolean).join(' · '), partner: s.name });
+      if (!r) { f.note.focus(); return; }
       toast('Order sent. The supplier has been notified on WhatsApp.');
       location.hash = `#/order/${r.id}`;
     });

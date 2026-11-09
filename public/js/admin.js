@@ -24,7 +24,7 @@ route('/a', async ({ render }) => {
     <div class="metrics">
       ${[['Suppliers', c.suppliers, `${c.unclaimed} not claimed yet`], ['Buyers', c.buyers, ''], ['Open requests', c.open_requests, ''],
         ['Documents to check', c.docs_to_check, 'suppliers'], ['Models awaiting approval', c.pending_models, ''], ['Problems flagged', c.disputes, 'orders'],
-        ['Low ratings to review', c.low_ratings, '2 stars or less, last 30 days'], ['WhatsApp waiting', c.wa_waiting, 'batched or quiet hours']]
+        ['Low ratings to review', c.low_ratings, '2 stars or less, last 30 days'], ['WhatsApp waiting', c.wa_waiting, 'batched or quiet hours'], ['Number-sharing attempts', c.number_attempts, 'blocked, last 30 days']]
         .map(([l, v, s]) => `<div class="metric"><span class="small muted">${l}</span><span class="v">${v}</span><span class="tiny muted">${s}</span></div>`).join('')}
     </div>
     <h2>Success metrics</h2><p class="small muted">From the PRD. Review weekly.</p>
@@ -39,10 +39,10 @@ route('/a', async ({ render }) => {
 
 function bizTable(rows, role) {
   return `<div class="table-wrap"><table><thead><tr><th>Business</th><th>Phone</th><th>City</th>${role === 'supplier' ? '<th>Type</th><th>Setup</th><th>Claimed</th><th>Items</th>' : '<th>Installs</th>'}
-    <th>Deals</th><th>Documents</th><th>Verified</th><th>Status</th></tr></thead><tbody>
+    <th>Deals</th><th>Numbers shared</th><th>Documents</th><th>Verified</th><th>Status</th></tr></thead><tbody>
     ${rows.map((b) => `<tr data-id="${b.id}"><td class="strong">${esc(b.name)}<div class="tiny muted">${esc(b.contact || '')}</div></td><td class="nowrap">${esc(b.phone)}</td><td>${esc(b.city || '')}</td>
       ${role === 'supplier' ? `<td>${esc(typeLabel[b.supplier_type] || '')}</td><td>${esc(b.setup_by)}</td><td>${yes(b.claimed)}</td><td>${b.listings}</td>` : `<td>${esc(b.installs || '')}</td>`}
-      <td>${b.deals}</td>
+      <td>${b.deals}</td><td>${b.number_attempts ? `<span class="badge ${b.number_attempts >= 3 ? 'red' : 'amber'}">${b.number_attempts} in 30 days</span>` : '<span class="muted">none</span>'}</td>
       <td><select data-f="docs_status" aria-label="Documents for ${esc(b.name)}" style="height:34px;width:auto">${['pending', 'received', 'verified', 'failed'].map((s) => `<option ${b.docs_status === s ? 'selected' : ''}>${s}</option>`).join('')}</select>${b.ntn ? `<div class="tiny muted">NTN ${esc(b.ntn)}</div>` : ''}</td>
       <td><label class="check"><input type="checkbox" data-f="verified" ${b.verified ? 'checked' : ''} aria-label="Verified">${b.verified ? 'Yes' : 'No'}</label></td>
       <td><button type="button" class="btn small ${b.status === 'active' ? 'danger' : 'outline'}" data-f="status" data-v="${b.status === 'active' ? 'suspended' : 'active'}">${b.status === 'active' ? 'Suspend' : 'Reactivate'}</button></td></tr>`).join('')}
