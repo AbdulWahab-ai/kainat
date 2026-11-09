@@ -77,9 +77,8 @@ export function numberWarning({ role, text, attempts = 1, partner = '' }) {
       <button type="button" class="btn primary block" data-v="mask">Send without the number</button>
       <button type="button" class="btn block" data-v="edit">Edit message</button>
     </div></div>`;
-    const close = (v) => { root.innerHTML = ''; resolve(v); };
+    const close = sheet(root, (v) => resolve(v ?? 'edit'));
     root.querySelectorAll('[data-v]').forEach((b) => { b.onclick = () => close(b.dataset.v); });
-    $('.modal-backdrop', root).onclick = (e) => { if (e.target.classList.contains('modal-backdrop')) close('edit'); };
     setTimeout(() => root.querySelector('[data-v=mask]')?.focus(), 30);
   });
 }
@@ -105,16 +104,101 @@ export function watchPhone(input, hint) {
 }
 export const phoneHintHtml = (id) => `<p class="numhint" id="${id}" hidden role="status">Phone numbers can’t be shared on Kainat. Keep the conversation here so the order stays protected.</p>`;
 
+// ---------- sheets ----------
+// Turns the dialog just drawn into #modal-root into a bottom sheet: tap outside, press Esc or drag the handle down
+// to dismiss. Returns close(value); onClose gets the value (undefined when dismissed). The sheet leaves with a
+// short slide-out drawn by a copy outside #modal-root, so the real dialog is gone from the page at once.
+export function sheet(root, onClose) {
+  const back = $('.modal-backdrop', root);
+  const box = $('.modal', root);
+  const opener = document.activeElement;
+  let done = false;
+  const close = (v) => {
+    if (done) return;
+    done = true;
+    document.removeEventListener('keydown', onKey, true);
+    if (box && back) {
+      const ghost = document.createElement('div');
+      ghost.className = 'ghost-back';
+      ghost.setAttribute('aria-hidden', 'true');
+      const copy = document.createElement('div');
+      copy.className = 'ghost-sheet';
+      copy.innerHTML = box.innerHTML;
+      copy.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'));
+      if (box.style.transform) copy.style.setProperty('--drag', box.style.transform.replace(/[^\d.-]/g, '') + 'px');
+      ghost.append(copy);
+      document.body.append(ghost);
+      setTimeout(() => ghost.remove(), 260);
+    }
+    root.innerHTML = '';
+    if (opener && document.contains(opener)) opener.focus?.({ preventScroll: true });
+    onClose(v);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(undefined); } };
+  document.addEventListener('keydown', onKey, true);
+  if (back) back.addEventListener('click', (e) => { if (e.target === back) close(undefined); });
+  if (box) {
+    const handle = document.createElement('div');
+    handle.className = 'sheet-handle';
+    handle.setAttribute('aria-hidden', 'true');
+    box.prepend(handle);
+    let y0 = null;
+    handle.addEventListener('pointerdown', (e) => { y0 = e.clientY; handle.setPointerCapture(e.pointerId); box.style.transition = 'none'; });
+    handle.addEventListener('pointermove', (e) => { if (y0 !== null) box.style.transform = `translateY(${Math.max(0, e.clientY - y0)}px)`; });
+    const end = (e) => {
+      if (y0 === null) return;
+      const dy = e.clientY - y0;
+      y0 = null;
+      box.style.transition = '';
+      if (dy > 90) close(undefined); else box.style.transform = '';
+    };
+    handle.addEventListener('pointerup', end);
+    handle.addEventListener('pointercancel', end);
+  }
+  return close;
+}
+
+// ---------- toasts ----------
+// toast('Saved') or toast('Request passed', '', { action: 'Undo', onAction: () => ... }). With an action the toast stays
+// a little longer and shows a bar counting down the time left to use it.
 let toastTimer;
 let toastSeq = 0;
-export function toast(msg, kind = '') {
+export function toast(msg, kind = '', { action = '', onAction = null, ms = 0 } = {}) {
   const t = $('#toast');
-  t.textContent = msg;
+  const life = ms || (action ? 5000 : kind === 'error' ? 5000 : 3000);
+  t.innerHTML = `<div class="t-in"><span>${esc(msg)}</span>${action ? `<button type="button">${esc(action)}</button>` : ''}</div>${action ? `<div class="t-bar"><i style="animation-duration:${life}ms"></i></div>` : ''}`;
   t.dataset.seq = String(++toastSeq); // lets tests tell a new toast from one still showing
-  t.className = 'toast' + (kind ? ' ' + kind : '');
+  t.className = 'toast' + (kind ? ' ' + kind : '') + (action ? ' has-action' : '');
   t.hidden = false;
+  // Restart the entrance each time, even when a toast is already showing.
+  t.style.animation = 'none'; void t.offsetWidth; t.style.animation = '';
+  const btn = $('button', t);
+  if (btn) btn.onclick = () => { clearTimeout(toastTimer); t.hidden = true; onAction?.(); };
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.hidden = true; }, kind === 'error' ? 5000 : 3000);
+  toastTimer = setTimeout(() => { t.hidden = true; }, life);
+}
+
+// ---------- banner ----------
+// A card that drops in from the top for an alert that arrives while the app is open. Tap opens it; swipe up or
+// wait 5 seconds to dismiss.
+let bannerTimer;
+export function banner({ title = 'Kainat', body = '', link = '', urgent = false } = {}) {
+  document.querySelector('.banner')?.remove();
+  const b = document.createElement(link ? 'a' : 'div');
+  b.className = 'banner' + (urgent ? ' urgent' : '');
+  b.setAttribute('role', 'status');
+  if (link) b.href = link;
+  b.innerHTML = `<div class="b-row"><span class="b-ic" aria-hidden="true">${icons.bell}</span><span class="b-txt"><strong>${esc(title)}</strong><span>${esc(body)}</span></span></div><div class="b-bar"><i></i></div>`;
+  document.body.append(b);
+  const hide = () => { clearTimeout(bannerTimer); b.classList.remove('on'); setTimeout(() => b.remove(), 450); };
+  requestAnimationFrame(() => b.classList.add('on'));
+  setTimeout(() => b.classList.add('on'), 30); // rAF does not run in a hidden tab
+  bannerTimer = setTimeout(hide, 5000);
+  b.addEventListener('click', hide);
+  let y0 = null;
+  b.addEventListener('pointerdown', (e) => { y0 = e.clientY; });
+  b.addEventListener('pointerup', (e) => { if (y0 !== null && y0 - e.clientY > 30) { e.preventDefault(); hide(); } y0 = null; });
+  return hide;
 }
 
 // Small dialog that asks for one line of text. Resolves to the text, or null on cancel.
@@ -127,9 +211,8 @@ export function ask(title, { placeholder = '', okLabel = 'Send', required = true
       <div class="grid2"><button type="button" class="btn" data-cancel>Cancel</button><button class="btn primary">${esc(okLabel)}</button></div>
     </form></div>`;
     const form = $('form', root);
-    const close = (v) => { root.innerHTML = ''; resolve(v); };
+    const close = sheet(root, (v) => resolve(v ?? null));
     $('[data-cancel]', root).onclick = () => close(null);
-    $('.modal-backdrop', root).onclick = (e) => { if (e.target.classList.contains('modal-backdrop')) close(null); };
     form.onsubmit = (e) => { e.preventDefault(); close(form.v.value.trim()); };
     setTimeout(() => form.v.focus(), 30);
   });
@@ -142,9 +225,10 @@ export function confirmBox(title, text, okLabel = 'Yes') {
       <h2 id="cf-title">${esc(title)}</h2><p class="muted">${esc(text)}</p>
       <div class="grid2"><button type="button" class="btn" data-no>Cancel</button><button type="button" class="btn primary" data-yes>${esc(okLabel)}</button></div>
     </div></div>`;
-    const close = (v) => { root.innerHTML = ''; resolve(v); };
+    const close = sheet(root, (v) => resolve(v ?? false));
     $('[data-no]', root).onclick = () => close(false);
     $('[data-yes]', root).onclick = () => close(true);
+    setTimeout(() => $('[data-yes]', root)?.focus(), 30);
   });
 }
 
@@ -248,10 +332,33 @@ export function poll(fn, ms = 4000) {
 }
 export function stopPoll() { clearInterval(pollTimer); pollTimer = null; }
 
+// The entrance for the next screen drawn: 'fwd' (deeper), 'back' (returning) or 'fade' (switching tabs).
+// Set by navigate(); a screen redrawing itself (live refresh) does not move.
+let enter = '';
 export function render(html) {
   $('#app').innerHTML = html;
   window.scrollTo(0, 0);
+  const main = $('#app main.content');
+  if (main && enter) main.classList.add('enter-' + enter);
+  enter = '';
 }
+
+// Works out which way a navigation goes from a short trail of recent screens.
+const trail = [];
+function direction(path) {
+  const tabs = /^\/(b\/search|b\/requests|s\/inbox|s\/shop|deals|chats|profile|a)$/;
+  if (trail[trail.length - 1] === path) return '';
+  if (trail[trail.length - 2] === path) { trail.pop(); return 'back'; }
+  if (tabs.test(path)) { trail.length = 0; trail.push(path); return 'fade'; }
+  trail.push(path);
+  if (trail.length > 20) trail.shift();
+  return 'fwd';
+}
+
+// Placeholder shaped like a screen while it loads (a top bar and a few cards).
+const SKELETON = `<div class="loading" aria-busy="true"><span class="sr-only">Loading…</span>
+  <div class="sk-top"><span class="sk" style="width:44%;height:18px;border-radius:6px"></span></div>
+  <div class="sk-body"><span class="sk" style="height:52px"></span><span class="sk" style="height:96px"></span><span class="sk" style="height:96px"></span><span class="sk" style="height:96px;opacity:.6"></span></div></div>`;
 
 export function emptyState(text, action = '') {
   return `<div class="empty"><p>${esc(text)}</p>${action}</div>`;
@@ -284,8 +391,10 @@ export const route = (pattern, handler, opts = {}) => {
 
 export async function refreshMe() {
   const r = await api('GET', '/api/me');
+  const before = state.me?.id === r.me?.id ? state.counts?.notifications : undefined;
   state.me = r.me;
   state.counts = r.counts || {};
+  announce(before);
   $('#switch-account').hidden = !state.me;
   return state.me;
 }
@@ -301,6 +410,7 @@ export function homeFor(me) {
 export async function navigate() {
   const seq = ++navSeq;
   stopPoll();
+  watchAlerts();
   const raw = location.hash.slice(1) || '/';
   const [pathPart, qs] = raw.split('?');
   const query = Object.fromEntries(new URLSearchParams(qs || ''));
@@ -322,11 +432,13 @@ export async function navigate() {
   const m = pathPart.match(r.re);
   const params = {};
   r.keys.forEach((k, i) => { params[k] = decodeURIComponent(m[i + 1]); });
-  $('#app').innerHTML = '<div class="loading">Loading…</div>';
+  const dir = direction(pathPart);
+  $('#app').innerHTML = SKELETON;
   // Each screen gets a render that only works while it is still the current navigation. A stale screen's
   // render throws, which also stops it from wiring buttons onto the newer screen.
   const guardedRender = (html) => {
     if (seq !== navSeq) throw STALE;
+    if (renderedSeq !== seq) enter = dir;
     renderedSeq = seq;
     render(html);
   };
@@ -337,6 +449,38 @@ export async function navigate() {
     render(shell({ title: 'Something went wrong', back: homeFor(me), body: `<div class="card danger">${esc(e.message)}</div>
       <a class="btn" href="${homeFor(me)}">Go home</a>` }));
   }
+}
+
+// New alerts while the app is open: the bell count updates in place with a small bump, and the newest alert
+// drops in as a banner. Checked every 30 seconds while the tab is visible; screens with their own refresh may call
+// refreshMe() too.
+async function announce(before) {
+  const n = state.counts?.notifications || 0;
+  const bell = document.querySelector('a.bell');
+  if (bell) {
+    bell.setAttribute('aria-label', `Notifications${n ? `, ${n} unread` : ''}`);
+    let dot = $('.dot', bell);
+    if (n && !dot) { dot = document.createElement('span'); dot.className = 'dot'; bell.append(dot); }
+    if (dot) { if (n) dot.textContent = n > 99 ? '99+' : String(n); else dot.remove(); }
+    if (dot && before !== undefined && n > before) { dot.classList.remove('bump'); void dot.offsetWidth; dot.classList.add('bump'); }
+  }
+  if (before === undefined || n <= before || !state.me?.role || state.me.is_admin) return;
+  if (location.hash.startsWith('#/notifications')) return;
+  try {
+    const { items } = await api('GET', '/api/notifications');
+    const top = items.find((x) => !x.read_at);
+    if (top) banner({ title: 'New on Kainat', body: top.body, link: top.link || '#/notifications', urgent: top.priority === 'urgent' });
+  } catch { /* the bell still shows the count */ }
+}
+// Started by the first navigation, so loading this module (as the unit tests do) leaves no timer running.
+let watching = false;
+function watchAlerts() {
+  if (watching) return;
+  watching = true;
+  setInterval(() => {
+    if (document.hidden || !state.me?.role) return;
+    refreshMe().catch(() => {});
+  }, 30000);
 }
 
 // Re-fetch the signed-in account on the next navigation (after actions that change counts).
