@@ -39,6 +39,7 @@ GitHub Actions (`.github/workflows/deploy.yml`) runs `kainat-deploy` on the serv
 backs up the database, checks out the new version, restarts the service and checks `/api/config`. If the app does
 not answer within 20 seconds it goes back to the previous version.
 
+Connect GitHub once per instance, from the project folder in Git Bash: `bash deploy/connect-github.sh staging`.
 Each deploy key in GitHub can run nothing but `kainat-deploy`, for its own instance only. In `/root/.ssh/authorized_keys`:
 
 ```

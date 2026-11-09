@@ -39,6 +39,7 @@ jobs:
           HOST: ${{ secrets.DEPLOY_HOST }}
           KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
         run: |
+          [[ -n "$KEY" ]] || { echo "::notice::Staging is not connected yet: run bash deploy/connect-github.sh staging"; exit 0; }
           install -m 700 -d ~/.ssh
           printf '%s\n' "$KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
@@ -59,6 +60,7 @@ jobs:
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "A release tag like v1.0.0 is required"; exit 1; }
+          [[ -n "$KEY" ]] || { echo "::error::Production is not connected: run bash deploy/connect-github.sh production"; exit 1; }
           install -m 700 -d ~/.ssh
           printf '%s\n' "$KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
