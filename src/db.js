@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { nowIso } from './clock.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, 'data');
@@ -15,7 +16,7 @@ const clean = (p) => p.map((v) => (v === undefined ? null : typeof v === 'boolea
 export const all = (sql, ...p) => db.prepare(sql).all(...clean(p));
 export const get = (sql, ...p) => db.prepare(sql).get(...clean(p));
 export const run = (sql, ...p) => db.prepare(sql).run(...clean(p));
-export const now = () => new Date().toISOString();
+export const now = () => nowIso();
 
 export function tx(fn) {
   db.exec('BEGIN');
@@ -225,6 +226,62 @@ CREATE INDEX IF NOT EXISTS idx_targets_supplier ON request_targets(supplier_id);
 CREATE INDEX IF NOT EXISTS idx_orders_buyer ON orders(buyer_id);
 CREATE INDEX IF NOT EXISTS idx_orders_supplier ON orders(supplier_id);
 CREATE INDEX IF NOT EXISTS idx_wa_business ON wa_messages(business_id);
+
+-- Every alert to a business. The in-app list reads this table; WhatsApp is one delivery channel on top of it.
+CREATE TABLE IF NOT EXISTS notifications (
+  id INTEGER PRIMARY KEY,
+  business_id INTEGER NOT NULL REFERENCES businesses(id),
+  event TEXT NOT NULL,
+  grp TEXT NOT NULL,                            -- requests | bidding | orders | chat | shop | ratings | account
+  priority TEXT NOT NULL,                       -- urgent | normal
+  body TEXT NOT NULL,
+  buttons TEXT,
+  context TEXT,
+  link TEXT,
+  wa_status TEXT NOT NULL,                      -- sent | queued | held | off | capped | batched
+  send_after TEXT,
+  sent_at TEXT,
+  wa_message_id INTEGER,
+  read_at TEXT,
+  dedupe_key TEXT UNIQUE,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notif_business ON notifications(business_id, id);
+CREATE INDEX IF NOT EXISTS idx_notif_pending ON notifications(wa_status, send_after);
+CREATE TABLE IF NOT EXISTS notify_prefs (
+  business_id INTEGER PRIMARY KEY REFERENCES businesses(id),
+  wa_requests INTEGER NOT NULL DEFAULT 1,
+  wa_bidding INTEGER NOT NULL DEFAULT 1,
+  wa_chat INTEGER NOT NULL DEFAULT 1,
+  wa_shop INTEGER NOT NULL DEFAULT 1,
+  wa_ratings INTEGER NOT NULL DEFAULT 1,
+  quiet_start INTEGER,                          -- hour 0-23 in Pakistan time; NULL with quiet_end NULL = no quiet hours
+  quiet_end INTEGER,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ratings (
+  id INTEGER PRIMARY KEY,
+  order_id INTEGER NOT NULL REFERENCES orders(id),
+  rater_id INTEGER NOT NULL REFERENCES businesses(id),
+  ratee_id INTEGER NOT NULL REFERENCES businesses(id),
+  rater_role TEXT NOT NULL,                     -- buyer | supplier
+  stars INTEGER NOT NULL CHECK (stars BETWEEN 1 AND 5),
+  tags TEXT,
+  comment TEXT,
+  reply TEXT,
+  reply_at TEXT,
+  hidden INTEGER NOT NULL DEFAULT 0,            -- comment hidden by the Kainat team; the stars still count
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  revealed_at TEXT,
+  UNIQUE (order_id, rater_id)
+);
+CREATE INDEX IF NOT EXISTS idx_ratings_ratee ON ratings(ratee_id);
+-- Small key/value store for scheduled jobs (for example, the day the morning price check last ran).
+CREATE TABLE IF NOT EXISTS job_state (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 `;
 
 export async function init() {
@@ -238,6 +295,14 @@ export async function init() {
   addColumn('request_targets', 'in_stock', 'INTEGER NOT NULL DEFAULT 0');
   addColumn('request_targets', 'stock_qty', 'INTEGER');
   addColumn('request_targets', 'stock_price', 'INTEGER');
+  addColumn('request_targets', 'wave', 'INTEGER NOT NULL DEFAULT 1');
+  // Matching waves: wave 1 goes out at once, wider waves only if too few bids arrive.
+  addColumn('requests', 'wave', 'INTEGER NOT NULL DEFAULT 1');
+  addColumn('requests', 'next_wave_at', 'TEXT');
+  addColumn('requests', 'closing_notice_at', 'TEXT');
+  addColumn('orders', 'auto_delivered', 'INTEGER NOT NULL DEFAULT 0');
+  addColumn('orders', 'accept_reminded_at', 'TEXT');
+  addColumn('orders', 'rating_reminded_at', 'TEXT');
   const count = get('SELECT COUNT(*) n FROM businesses').n;
   if (count === 0) {
     const { seed } = await import('./seed.js');

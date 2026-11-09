@@ -1,6 +1,42 @@
-// Screens both sides use: deals list, order page, simulated WhatsApp, profile.
+// Screens both sides use: deals list, order page, notifications, simulated WhatsApp, profile.
 import { route, render, shell, navFor, api, esc, rs, num, ago, day, toast, state, run, $, $$, typeLabel, emptyState, statusBadge,
-  refreshMe, ask, confirmBox, fileToDataUrl, icons, homeFor } from './core.js';
+  refreshMe, ask, confirmBox, fileToDataUrl, icons, homeFor, starText } from './core.js';
+
+const shortDate = (iso) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+
+// The rating section of the order page: a form while the viewer can rate, then both ratings once revealed.
+function ratingCard(o, me) {
+  const r = o.rating;
+  if (!r || o.status !== 'delivered') return '';
+  const other = o.buyer_id === me.id ? o.supplier : o.buyer;
+  const shown = (x, who) => `<div class="review"><span class="small strong">${esc(who)}</span><span class="star-text" aria-label="${x.stars} of 5 stars">${starText(x.stars)}</span>
+    ${x.tags.length ? `<span class="row wrap" style="gap:4px">${x.tags.map((t) => `<span class="badge">${esc(t)}</span>`).join('')}</span>` : ''}
+    ${x.comment ? `<span class="small">“${esc(x.comment)}”</span>` : x.hidden ? '<span class="tiny muted">Comment hidden by the Kainat team</span>' : ''}
+    ${x.reply ? `<div class="reply small"><span class="strong">Reply:</span> ${esc(x.reply)}</div>` : ''}</div>`;
+  let body = '';
+  if (r.can_rate) {
+    const m = r.mine || { stars: 0, tags: [], comment: '' };
+    body = `<form id="rate" class="stack" style="gap:10px">
+      <fieldset><legend class="small">${r.mine ? 'Change your rating' : `How was dealing with ${esc(other.name)}?`}</legend>
+        <div class="stars">${[5, 4, 3, 2, 1].map((n) => `<input type="radio" name="stars" id="st${n}" value="${n}" ${m.stars === n ? 'checked' : ''}><label for="st${n}" title="${n} star${n > 1 ? 's' : ''}" aria-label="${n} star${n > 1 ? 's' : ''}">★</label>`).join('')}</div></fieldset>
+      <div class="row wrap" style="gap:6px">${r.tags.map((t) => `<label class="chip"><input type="checkbox" name="tags" value="${esc(t)}" ${m.tags.includes(t) ? 'checked' : ''} style="margin-right:6px;accent-color:var(--brand)">${esc(t)}</label>`).join('')}</div>
+      <label class="field"><span class="flabel">Comment (optional)</span><textarea name="comment" maxlength="500" placeholder="What went well, or what could be better">${esc(m.comment || '')}</textarea></label>
+      <button class="btn primary">${r.mine ? 'Update rating' : 'Submit rating'}</button>
+      <span class="tiny muted">Hidden until ${esc(other.name)} rates too, or for 14 days. Rating closes ${shortDate(r.window_ends)}.</span></form>`;
+    if (r.waiting_for_other) body = `<div class="card tint small">${r.held_for_problem ? 'Your rating is saved. It stays hidden while the problem on this order is being resolved.' : `Your ${r.mine.stars} ★ rating is saved. Both ratings show once ${esc(other.name)} rates, or on ${shortDate(r.reveal_by)}.`}</div>` + body;
+  } else if (r.mine) {
+    body = shown(r.mine, 'You rated them');
+    if (r.waiting_for_other) body += `<span class="tiny muted">Shown once ${esc(other.name)} rates, or on ${shortDate(r.reveal_by)}.</span>`;
+  } else if (!r.window_open) {
+    body = '<span class="small muted">Rating closed 30 days after delivery.</span>';
+  }
+  if (r.theirs) {
+    body += shown(r.theirs, `${other.name} rated you`);
+    if (!r.theirs.reply) body += `<button type="button" class="btn small outline" data-reply="${r.theirs.id}">Reply publicly</button>`;
+  }
+  if (!body) return '';
+  return `<section class="card" id="rating"><span class="label-caps">Rating</span>${body}</section>`;
+}
 
 route('/deals', async ({ query, render }) => {
   await refreshMe();
@@ -18,13 +54,13 @@ route('/deals', async ({ query, render }) => {
     body: `<div class="chips"><a class="chip ${tab === 'active' ? 'on' : ''}" href="#/deals?tab=active">Active ${groups.active.length}</a>
       <a class="chip ${tab === 'done' ? 'on' : ''}" href="#/deals?tab=done">Delivered ${groups.done.length}</a>
       <a class="chip ${tab === 'closed' ? 'on' : ''}" href="#/deals?tab=closed">Closed ${groups.closed.length}</a></div>
-      ${list.map((o) => `<a class="card" href="#/order/${o.id}"><div class="row between"><span class="strong">${esc(o.model_name || 'Item')} × ${num(o.qty)}</span>${statusBadge(o.status, o.disputed)}</div>
+      ${list.map((o) => `<a class="card" href="#/order/${o.id}${o.can_rate ? '?rate=1' : ''}"><div class="row between"><span class="strong">${esc(o.model_name || 'Item')} × ${num(o.qty)}</span><span class="row" style="gap:4px">${o.can_rate ? '<span class="badge brand">Rate this deal</span>' : ''}${statusBadge(o.status, o.disputed)}</span></div>
         <span class="small muted">${me.role === 'buyer' ? 'from ' + esc(o.supplier_name) : 'to ' + esc(o.buyer_name)} · ${rs(o.total)} · #${o.id} · ${ago(o.delivered_at || o.created_at)}</span></a>`).join('')
         || emptyState(tab === 'active' ? 'No active deals.' : tab === 'done' ? 'Delivered deals build your trade history.' : 'Nothing here.')}`,
   }));
 });
 
-route('/order/:id', async ({ params, render }) => {
+route('/order/:id', async ({ params, query, render }) => {
   const me = state.me;
   const o = await api('GET', `/api/orders/${params.id}`);
   const isBuyer = o.buyer_id === me.id;
@@ -67,6 +103,8 @@ route('/order/:id', async ({ params, render }) => {
         ${steps.map(([label, at, done]) => `<div class="tl-step ${done ? 'done' : ''}"><div class="tl-rail"><span class="tl-dot"></span><span class="tl-line"></span></div>
           <div class="stack" style="gap:1px;padding-bottom:10px"><span class="small ${done ? 'strong' : 'muted'}">${esc(label)}</span><span class="tiny muted">${at && done ? new Date(at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}</span></div></div>`).join('')}</div></section>
       ${actions.length ? `<div class="grid2">${actions.join('')}</div>` : ''}
+      ${isBuyer || isSupplier ? ratingCard(o, me) : ''}
+      ${me.is_admin && o.rating?.all?.length ? `<section class="card"><span class="label-caps">Ratings (admin view)</span>${o.rating.all.map((x) => `<span class="small">${x.rater_role === 'buyer' ? 'Buyer' : 'Supplier'}: <span class="star-text">${starText(x.stars)}</span> ${x.revealed_at ? '' : '<span class="badge">hidden</span>'} ${esc(x.comment || '')}</span>`).join('')}</section>` : ''}
       <section class="card"><span class="label-caps">Messages</span>
         <div class="stack">${o.messages.map((m) => `<div class="bubble ${m.sender_id === me.id ? 'me' : 'them'}"><span class="tiny strong">${esc(m.sender_name || 'Kainat')}</span><br>${esc(m.body)}<div class="meta">${ago(m.at)}</div></div>`).join('') || '<span class="small muted">No messages yet.</span>'}</div>
         ${isBuyer || isSupplier ? `<form id="msg" class="composer"><input name="body" placeholder="Message ${esc(other.name)}" aria-label="Message"><button class="btn primary" aria-label="Send">${icons.send}</button></form>` : ''}</section>
@@ -101,6 +139,25 @@ route('/order/:id', async ({ params, render }) => {
     if (!body) return;
     run(e.submitter, async () => { await api('POST', `/api/orders/${o.id}/messages`, { body }); reload(); });
   });
+  $('#rate')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = e.target;
+    const stars = Number(new FormData(f).get('stars'));
+    if (!stars) { toast('Choose 1 to 5 stars', 'error'); return; }
+    run(e.submitter, async () => {
+      const r = await api('POST', `/api/orders/${o.id}/rating`, { stars, tags: $$('input[name=tags]:checked', f).map((x) => x.value), comment: f.comment.value });
+      toast(r.theirs ? 'Rating saved. Both ratings are now shown.' : 'Rating saved');
+      reload();
+    });
+  });
+  $$('[data-reply]').forEach((b) => b.addEventListener('click', () => run(b, async () => {
+    const text = await ask('Reply to this rating', { placeholder: 'Thank them, or explain what happened', okLabel: 'Post reply', help: 'Your reply shows under their rating on your profile. You can reply once.' });
+    if (text === null) return;
+    await api('POST', `/api/ratings/${b.dataset.reply}/reply`, { reply: text });
+    toast('Reply posted');
+    reload();
+  })));
+  if (query.rate) document.getElementById('rating')?.scrollIntoView({ block: 'start' });
   $('#proof')?.addEventListener('change', (e) => run(null, async () => {
     const file = e.target.files[0];
     if (!file) return;
@@ -113,7 +170,23 @@ route('/order/:id', async ({ params, render }) => {
 
 const reqLink = (c) => (state.me?.role === 'supplier' ? `#/s/quote/${c.request_id}` : `#/b/request/${c.request_id}`);
 const NAV_BUTTONS = { 'Open order': (c) => `#/order/${c.order_id}`, 'Open my shop': () => '#/s/shop', 'See quotes': reqLink, 'See bids': reqLink,
-  'Open request': reqLink, 'Open chat': (c) => `#/chat/${c.conversation_id}` };
+  'Open request': reqLink, 'Open chat': (c) => `#/chat/${c.conversation_id}`, 'Open notifications': () => '#/notifications' };
+
+route('/notifications', async ({ render }) => {
+  const d = await api('GET', '/api/notifications');
+  // Opening the list counts as reading it.
+  if (d.unread) await api('POST', '/api/notifications/read', {});
+  await refreshMe();
+  const waNote = (n) => ({ queued: 'WhatsApp: sent in the next batch', held: 'WhatsApp: after quiet hours', off: 'WhatsApp: off for this type', capped: 'WhatsApp: daily limit reached' })[n.wa_status] || '';
+  render(shell({
+    title: 'Notifications', eyebrow: d.unread ? `${d.unread} new` : 'All caught up', nav: navFor('notifications'),
+    actions: '<a class="btn small" href="#/profile?tab=alerts">Settings</a>',
+    body: d.items.map((n) => `<a class="card notif ${n.read_at ? '' : 'unread'}" href="${esc(n.link || '#/notifications')}">
+        <span class="stack" style="gap:4px;flex:1;min-width:0"><span class="body">${esc(n.body)}</span>
+        <span class="tiny muted">${ago(n.created_at)}${waNote(n) ? ' · ' + waNote(n) : ''}</span></span>${n.link ? icons.chevron : ''}</a>`).join('')
+      || emptyState('Nothing yet. New requests, bids, orders and messages show up here, and on WhatsApp.'),
+  }));
+});
 
 route('/whatsapp', async ({ render }) => {
   await refreshMe();
@@ -148,16 +221,42 @@ route('/whatsapp', async ({ render }) => {
   };
 });
 
-route('/profile', async ({ render }) => {
+const HOURS = Array.from({ length: 24 }, (_, h) => [h, `${h === 0 ? 12 : h > 12 ? h - 12 : h}:00 ${h < 12 ? 'am' : 'pm'}`]);
+
+function prefsForm(p, supplier) {
+  const groups = [
+    ['wa_requests', supplier ? 'New buyer requests' : 'Request updates (closing, expired, no bids)'],
+    ['wa_bidding', supplier ? 'Outbid alerts' : 'New and revised bids'],
+    ['wa_chat', 'Chat messages'],
+    ...(supplier ? [['wa_shop', 'Morning price check']] : []),
+    ['wa_ratings', 'Rating requests and new ratings'],
+  ];
+  const sel = (name, v) => `<select name="${name}" aria-label="${name === 'quiet_start' ? 'Quiet from' : 'Quiet until'}">${HOURS.map(([h, l]) => `<option value="${h}" ${v === h ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+  const quiet = p.quiet_start !== null && p.quiet_start !== undefined;
+  return `<form id="np" class="card stack" style="gap:10px"><span class="label-caps">WhatsApp alerts</span>
+    <span class="small muted">Everything always shows under the bell in the app. Choose what also comes to WhatsApp. Orders always do.</span>
+    ${groups.map(([k, l]) => `<label class="check"><input type="checkbox" name="${k}" ${p[k] ? 'checked' : ''}>${esc(l)}</label>`).join('')}
+    <label class="check"><input type="checkbox" name="quiet_on" ${quiet ? 'checked' : ''}>Quiet hours (Pakistan time)</label>
+    <div class="grid2" id="qh" ${quiet ? '' : 'hidden'}><label class="field"><span class="flabel">From</span>${sel('quiet_start', quiet ? p.quiet_start : 22)}</label>
+      <label class="field"><span class="flabel">Until</span>${sel('quiet_end', quiet ? p.quiet_end : 8)}</label></div>
+    <span class="tiny muted">During quiet hours WhatsApp alerts wait until the morning. New orders still come through.</span>
+    <button class="btn outline">Save alert settings</button></form>`;
+}
+
+route('/profile', async ({ query, render }) => {
   await refreshMe();
   const me = state.me;
   const supplier = me.role === 'supplier';
+  const prefs = me.is_admin ? null : await api('GET', '/api/notify-prefs');
+  const reviews = me.is_admin ? null : await api('GET', `/api/businesses/${me.id}/reviews`);
   render(shell({
     title: 'Profile', eyebrow: me.phone, nav: me.is_admin ? null : navFor('profile'), back: me.is_admin ? '#/a' : '',
     body: `
       <section class="card"><div class="row wrap">${me.verified ? '<span class="badge blue">Verified</span>' : '<span class="badge">Not verified yet</span>'}
         ${supplier ? `<span class="badge ${me.docs_status === 'verified' ? 'green' : me.docs_status === 'failed' ? 'red' : 'amber'}">Documents: ${esc(me.docs_status)}</span>` : ''}
-        <span class="badge">${me.deals} completed deal${me.deals === 1 ? '' : 's'}</span></div>
+        <span class="badge">${me.deals} completed deal${me.deals === 1 ? '' : 's'}</span>
+        ${reviews ? (reviews.summary.avg !== null ? `<span class="badge brand">★ ${reviews.summary.avg.toFixed(1)} · ${reviews.summary.count} ratings</span>`
+          : `<span class="badge">${reviews.summary.count ? `${reviews.summary.count} rating${reviews.summary.count === 1 ? '' : 's'}; score shows from 3` : 'No ratings yet'}</span>`) : ''}</div>
         <span class="small muted">${supplier ? (me.setup_by === 'team' ? 'Shop set up by the Kainat team.' : 'Shop created by you.') + ' Verified suppliers get a badge buyers trust before paying token money.' : 'Verified buyers see exact prices from every supplier.'}</span></section>
       <form id="f" class="stack" style="gap:14px">
         <label class="field"><span class="flabel">${supplier ? 'Business name' : 'Company name'}</span><input name="name" value="${esc(me.name)}" required></label>
@@ -172,6 +271,10 @@ route('/profile', async ({ render }) => {
           : `<label class="field"><span class="flabel">What you buy most</span><input name="buys" value="${esc(me.buys || '')}"></label>`}
         <button class="btn primary block">Save</button>
       </form>
+      ${prefs ? prefsForm(prefs, supplier) : ''}
+      ${reviews?.reviews.length ? `<section class="card"><span class="label-caps">What partners say about you</span>${reviews.reviews.slice(0, 5).map((x) => `<div class="review">
+        <span class="small"><span class="star-text" aria-label="${x.stars} of 5 stars">${starText(x.stars)}</span> · ${esc(x.rater_name)} · ${shortDate(x.created_at)}</span>
+        ${x.comment ? `<span class="small">“${esc(x.comment)}”</span>` : ''}${x.reply ? `<div class="reply small"><span class="strong">Your reply:</span> ${esc(x.reply)}</div>` : ''}</div>`).join('')}</section>` : ''}
       <a class="btn block" href="#/whatsapp">Open simulated WhatsApp</a>
       <button type="button" id="out" class="btn block">Sign out</button>`,
   }));
@@ -179,6 +282,18 @@ route('/profile', async ({ render }) => {
     e.preventDefault();
     run(e.submitter, async () => { await api('PUT', '/api/me', Object.fromEntries(new FormData(e.target))); toast('Saved'); await refreshMe(); });
   };
+  const np = $('#np');
+  if (np) {
+    np.quiet_on.onchange = () => { $('#qh').hidden = !np.quiet_on.checked; };
+    np.onsubmit = (e) => {
+      e.preventDefault();
+      const body = Object.fromEntries(['wa_requests', 'wa_bidding', 'wa_chat', 'wa_shop', 'wa_ratings'].filter((k) => np[k]).map((k) => [k, np[k].checked]));
+      body.quiet_start = np.quiet_on.checked ? np.quiet_start.value : 'off';
+      body.quiet_end = np.quiet_on.checked ? np.quiet_end.value : 'off';
+      run(e.submitter, async () => { await api('PUT', '/api/notify-prefs', body); toast('Alert settings saved'); });
+    };
+    if (query.tab === 'alerts') np.scrollIntoView({ block: 'start' });
+  }
   $('#out').onclick = async () => { await api('POST', '/api/auth/logout'); state.me = null; location.hash = '#/login'; };
   void homeFor;
 });

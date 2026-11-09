@@ -4,6 +4,7 @@
   "private": true,
   "description": "Two-sided procurement marketplace for solar equipment: buyer requests, supplier quotes, live listings, trade history.",
   "type": "module",
+  "packageManager": "pnpm@10.34.7",
   "engines": {
     "node": ">=22.13"
   },

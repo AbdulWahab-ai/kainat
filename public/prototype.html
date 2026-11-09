@@ -1,0 +1,1303 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"></head><body>
+<title>Kainat clickable prototype</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Nastaliq+Urdu:wght@400;600&display=swap">
+<style>
+/* Layout: a control panel beside a 390x844 phone running the prototype; on narrow screens the phone fills the width and the panel follows below. */
+:root {
+  --page: #EDEBE4; --panel: #FFFFFF; --pfg: #1C1B19; --pmuted: #5F5E5A; --pline: #DAD7CC; --pchip: #F3F1EA; --paccent: #AE5630; --ponaccent: #FFFFFF;
+  --bezel: #1C1B19;
+  --font: Inter, "Segoe UI", system-ui, sans-serif; --urdu: "Noto Nastaliq Urdu", "Jameel Noori Nastaleeq", serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --page: #121211; --panel: #1C1B19; --pfg: #F1EFE8; --pmuted: #A8A69E; --pline: #34332F; --pchip: #262522; --paccent: #D97757; --ponaccent: #141413; --bezel: #000000; color-scheme: dark } }
+:root[data-theme="dark"] { --page: #121211; --panel: #1C1B19; --pfg: #F1EFE8; --pmuted: #A8A69E; --pline: #34332F; --pchip: #262522; --paccent: #D97757; --ponaccent: #141413; --bezel: #000000; color-scheme: dark }
+html, body { height: 100%; }
+body { background: var(--page); color: var(--pfg); font-family: var(--font); }
+.stage { min-height: 100%; box-sizing: border-box; display: flex; gap: 28px; justify-content: center; align-items: flex-start; padding-block: 20px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.panel { width: 320px; flex-shrink: 0; background: var(--panel); border: 1px solid var(--pline); border-radius: 18px; padding: 18px; display: flex; flex-direction: column; gap: 16px; max-height: calc(100vh - 40px); overflow-y: auto; box-sizing: border-box; }
+.panel h1 { margin: 0; font-size: 20px; letter-spacing: -0.01em; text-wrap: balance; }
+.panel p { margin: 0; font-size: 13px; color: var(--pmuted); line-height: 1.5; }
+.panel .grp { display: flex; flex-direction: column; gap: 8px; }
+.panel .lbl { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--pmuted); }
+.panel .btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.panel button { font: inherit; font-size: 13px; border: 1px solid var(--pline); background: var(--pchip); color: var(--pfg); border-radius: 10px; padding: 7px 10px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.panel button:hover { border-color: var(--pmuted); }
+.panel button.on { background: var(--paccent); border-color: var(--paccent); color: var(--ponaccent); font-weight: 600; }
+.panel button:focus-visible { outline: 2px solid var(--paccent); outline-offset: 2px; }
+.panel .snd svg { flex-shrink: 0; }
+.phonewrap { flex-shrink: 0; width: 410px; }
+.phone { width: 390px; height: 844px; border: 10px solid var(--bezel); border-radius: 54px; overflow: hidden; transform-origin: top left; position: relative; background: var(--bezel); }
+@media (max-width: 860px) {
+  .stage { flex-direction: column; align-items: center; }
+  .panel { width: 100%; max-width: 430px; max-height: none; order: 2; }
+}
+@media (max-width: 520px) {
+  .stage { padding-left: 0; padding-right: 0; padding-block: 0; gap: 16px; }
+  .phonewrap { width: 100%; }
+  .phone { width: 100%; height: 100dvh; border: 0; border-radius: 0; transform: none !important; }
+  .panel { margin: 0 max(16px, env(safe-area-inset-left, 0px)) 24px; width: auto; }
+}
+
+/* ---------- the app inside the phone ---------- */
+.app { --bg: #FAF9F5; --card: #FFFFFF; --ink: #141413; --ink2: #3D3D3A; --muted: #66655F; --line: #E8E6DC; --line2: #D6D3C7; --chip: #F0EEE6;
+  --brand: #AE5630; --onbrand: #FFFFFF; --brandT: #8C4324; --tint: #FAEDE6; --clay: #D97757; --ok: #2C5E36; --okbg: #E7F1E8; --amber: #7A4E00; --amberbg: #FDF1DC;
+  --blue: #284B83; --bluebg: #EAEFF8; --red: #9B2C1C; --redbg: #FCEBE8; --inv: #141413; --oninv: #FFFFFF; --scrim: rgba(20,20,19,0.5); --bw: 1px;
+  position: relative; width: 100%; height: 100%; background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 14px; overflow: hidden; -webkit-tap-highlight-color: transparent; }
+.app[data-mode="dark"] { --bg: #141413; --card: #1F1E1C; --ink: #F4F2EC; --ink2: #D6D3C7; --muted: #A8A69E; --line: #33322F; --line2: #4A4945; --chip: #2A2A28;
+  --brand: #C2643A; --onbrand: #FFFFFF; --brandT: #F5C4B3; --tint: #3A241A; --clay: #E8957A; --ok: #8FD19E; --okbg: #1E3324; --amber: #F3C677; --amberbg: #3A2E12;
+  --blue: #9DB8E8; --bluebg: #1C2A40; --red: #F09595; --redbg: #3A1C18; --inv: #F4F2EC; --oninv: #141413; --scrim: rgba(0,0,0,0.6); }
+.app[data-mode="sun"] { --bg: #FFFFFF; --card: #FFFFFF; --ink: #000000; --ink2: #000000; --muted: #262626; --line: #000000; --line2: #000000; --chip: #EDEDED;
+  --brand: #8C4324; --brandT: #6E3419; --tint: #F7E3D8; --clay: #B24F25; --bw: 2px; }
+.app[data-mode="sun"] .scroll { zoom: 1.07; }
+.app button, .app input, .app select, .app textarea { font: inherit; color: inherit; }
+.app button { cursor: pointer; }
+.app :focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.scroll { position: absolute; inset: 0 0 72px 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scrollbar-width: none; }
+.scroll::-webkit-scrollbar { display: none; }
+.app.nonav .scroll { bottom: 0; }
+.pad { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.enter-fwd { animation: inFwd 0.32s cubic-bezier(0.2, 0.9, 0.25, 1); }
+.enter-back { animation: inBack 0.32s cubic-bezier(0.2, 0.9, 0.25, 1); }
+.enter-fade { animation: inFade 0.25s ease; }
+@keyframes inFwd { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+@keyframes inBack { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
+@keyframes inFade { from { opacity: 0; } to { opacity: 1; } }
+.hrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.eyebrow { font-size: 13px; color: var(--muted); }
+.h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+.h2 { font-size: 18px; font-weight: 700; }
+.small { font-size: 12px; color: var(--muted); }
+.num { font-variant-numeric: tabular-nums; }
+.cap { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; color: var(--muted); text-transform: uppercase; }
+.top { position: sticky; top: 0; z-index: 3; background: var(--card); border-bottom: var(--bw) solid var(--line); padding: 10px 12px 10px 6px; display: flex; align-items: center; gap: 6px; }
+.top .t { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.top .t b { font-size: 17px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iconbtn { width: 44px; height: 44px; border-radius: 22px; border: var(--bw) solid var(--line); background: var(--card); display: inline-flex; align-items: center; justify-content: center; position: relative; flex-shrink: 0; color: var(--ink); }
+.iconbtn.plain { border-color: transparent; background: transparent; border-radius: 12px; }
+.dot { position: absolute; top: 3px; right: 3px; min-width: 18px; height: 18px; padding: 0 4px; box-sizing: border-box; border-radius: 9px; background: var(--brand); color: var(--onbrand); font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.card { background: var(--card); border: var(--bw) solid var(--line); border-radius: 18px; }
+.tile { background: var(--card); border: var(--bw) solid var(--line); border-radius: 20px; padding: 14px; display: flex; flex-direction: column; gap: 8px; text-align: left; color: var(--ink); width: 100%; box-sizing: border-box; }
+.tile.tint { background: var(--tint); border-color: transparent; }
+.tile:active, .btn:active, .btn2:active, .chip:active, .iconbtn:active { transform: scale(0.97); }
+.tile, .btn, .btn2, .chip, .iconbtn { transition: transform 0.12s ease, background-color 0.2s ease, border-color 0.2s ease; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip { height: 36px; padding: 0 14px; border-radius: 18px; background: var(--chip); border: var(--bw) solid transparent; font-size: 14px; display: inline-flex; align-items: center; color: var(--ink); }
+.chip.on { background: var(--inv); color: var(--oninv); font-weight: 600; }
+.badge { height: 22px; padding: 0 8px; border-radius: 11px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; background: var(--chip); color: var(--ink2); white-space: nowrap; }
+.badge.brand { background: var(--brand); color: var(--onbrand); } .badge.ok { background: var(--okbg); color: var(--ok); } .badge.blue { background: var(--bluebg); color: var(--blue); }
+.badge.tint { background: var(--tint); color: var(--brandT); } .badge.amber { background: var(--amberbg); color: var(--amber); }
+.btn { height: 52px; border: 0; border-radius: 16px; background: var(--brand); color: var(--onbrand); font-size: 16px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 18px; }
+.btn2 { height: 46px; border: var(--bw) solid var(--line2); border-radius: 14px; background: var(--card); color: var(--ink); font-size: 14px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 14px; }
+.btn.sm { height: 44px; font-size: 14px; border-radius: 14px; } .block { width: 100%; }
+.livedot { width: 8px; height: 8px; border-radius: 4px; background: var(--ok); display: inline-block; animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+.stat { background: var(--card); border: var(--bw) solid var(--line); border-radius: 14px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.stat b { font-size: 17px; font-variant-numeric: tabular-nums; }
+.board { overflow: hidden; }
+.brow { padding: 14px; display: flex; gap: 12px; align-items: flex-start; border-top: var(--bw) solid var(--line); background: var(--card); position: relative; }
+.brow:first-child { border-top: 0; background: var(--tint); }
+.rank { width: 28px; height: 28px; border-radius: 14px; background: var(--chip); font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.brow:first-child .rank { background: var(--brand); color: var(--onbrand); }
+.brow .meta { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.brow .l1, .brow .l2 { display: flex; justify-content: space-between; gap: 8px; }
+.brow .nm { font-size: 15px; font-weight: 600; }
+.brow .pr { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.down { color: var(--ok); font-weight: 600; font-size: 12px; }
+.sub { font-size: 12px; color: var(--ink2); }
+.bottombar { position: sticky; bottom: 0; z-index: 2; background: var(--card); border-top: var(--bw) solid var(--line); padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+.nav { position: absolute; left: 0; right: 0; bottom: 0; height: 72px; background: var(--card); border-top: var(--bw) solid var(--line); display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); z-index: 5; }
+.app.nonav .nav { display: none; }
+.nav button { border: 0; background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 11px; color: var(--muted); position: relative; }
+.nav button.on { color: var(--brand); font-weight: 700; }
+.nav button .dot { top: 6px; right: calc(50% - 22px); }
+.strip { margin: 10px 12px 0; height: 40px; border-radius: 20px; background: var(--inv); color: var(--oninv); display: flex; align-items: center; gap: 10px; padding: 0 6px 0 14px; font-size: 13px; border: 0; width: calc(100% - 24px); box-sizing: border-box; }
+.strip .livedot { background: #7BC88A; }
+.strip .go { height: 28px; padding: 0 10px; border-radius: 14px; background: rgba(127,127,127,0.25); display: flex; align-items: center; font-weight: 600; }
+.offline { background: var(--amberbg); color: var(--amber); padding: 9px 16px; display: flex; gap: 8px; align-items: center; font-size: 13px; border-bottom: var(--bw) solid var(--line); }
+.search { display: flex; align-items: center; gap: 4px; height: 52px; border-radius: 14px; background: var(--card); border: var(--bw) solid var(--line); padding: 0 4px 0 14px; }
+.search input, .search .ph { flex: 1; border: 0; outline: none; background: transparent; font-size: 15px; color: var(--ink); min-width: 0; text-align: left; height: 100%; }
+.search .ph { color: var(--muted); display: flex; align-items: center; }
+.list .li { display: flex; gap: 12px; align-items: center; padding: 14px; border-top: var(--bw) solid var(--line); text-align: left; width: 100%; background: transparent; border-left: 0; border-right: 0; border-bottom: 0; color: var(--ink); }
+.list .li:first-child { border-top: 0; }
+.list .li.unread { background: var(--tint); }
+.li .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.circ { width: 38px; height: 38px; border-radius: 19px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: var(--card); color: var(--brand); }
+.sw { appearance: none; -webkit-appearance: none; margin: 0; width: 50px; height: 30px; border-radius: 15px; background: var(--line2); position: relative; flex-shrink: 0; cursor: pointer; transition: background-color 0.2s ease; }
+.sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 12px; background: #FFFFFF; box-shadow: 0 1px 3px rgba(0,0,0,0.25); transition: transform 0.25s cubic-bezier(0.2, 0.9, 0.25, 1.2); }
+.sw:checked { background: var(--brand); } .sw:checked::after { transform: translateX(20px); }
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--chip); border-radius: 12px; padding: 3px; gap: 3px; }
+.seg button { border: 0; background: transparent; height: 36px; border-radius: 9px; font-size: 13px; font-weight: 600; color: var(--ink2); }
+.seg button.on { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
+.row { display: flex; align-items: center; gap: 12px; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field span { font-size: 13px; font-weight: 600; }
+.field input, .field select { height: 46px; border: var(--bw) solid var(--line); border-radius: 12px; padding: 0 12px; font-size: 15px; background: var(--card); color: var(--ink); min-width: 0; }
+table.cmp { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; font-size: 13px; }
+table.cmp th, table.cmp td { padding: 10px 6px; text-align: left; border-top: var(--bw) solid var(--line); }
+table.cmp thead th { border-top: 0; font-weight: 700; line-height: 1.25; }
+table.cmp tbody th { font-weight: 500; color: var(--muted); padding-left: 12px; }
+table.cmp td.best { background: var(--tint); color: var(--brandT); font-weight: 700; }
+/* overlays */
+.layer { position: absolute; inset: 0; z-index: 20; pointer-events: none; }
+.scrim { position: absolute; inset: 0; background: var(--scrim); opacity: 0; transition: opacity 0.3s ease; pointer-events: none; }
+.scrim.on { opacity: 1; pointer-events: auto; }
+.sheet { position: absolute; left: 0; right: 0; bottom: 0; background: var(--card); color: var(--ink); border-radius: 24px 24px 0 0; padding: 10px 18px 22px; display: flex; flex-direction: column; gap: 14px; transform: translateY(105%); transition: transform 0.38s cubic-bezier(0.2, 0.9, 0.25, 1); pointer-events: auto; max-height: 88%; overflow-y: auto; box-sizing: border-box; touch-action: pan-y; }
+.sheet.on { transform: none; }
+.grab { align-self: center; width: 40px; height: 5px; border-radius: 3px; background: var(--line2); flex-shrink: 0; cursor: grab; }
+.banner { position: absolute; top: 10px; left: 10px; right: 10px; z-index: 30; background: var(--card); border: var(--bw) solid var(--line); border-radius: 20px; padding: 14px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 14px 36px rgba(20,20,19,0.22); transform: translateY(-130%); transition: transform 0.42s cubic-bezier(0.2, 0.9, 0.25, 1.1); touch-action: none; }
+.banner.on { transform: none; }
+.banner .bar { height: 4px; border-radius: 2px; background: var(--chip); overflow: hidden; }
+.banner .bar i { display: block; height: 100%; background: var(--clay); transform-origin: left; }
+.toast { position: absolute; left: 12px; right: 12px; bottom: 84px; z-index: 30; background: var(--inv); color: var(--oninv); border-radius: 16px; overflow: hidden; transform: translateY(160%); transition: transform 0.35s cubic-bezier(0.2, 0.9, 0.25, 1.1); }
+.app.nonav .toast { bottom: 16px; }
+.toast.on { transform: none; }
+.toast .in { display: flex; align-items: center; gap: 12px; padding: 12px 8px 12px 16px; min-height: 48px; box-sizing: border-box; }
+.toast .in span { flex: 1; font-size: 14px; }
+.toast button { height: 40px; padding: 0 14px; border: 0; border-radius: 10px; background: rgba(127,127,127,0.28); color: var(--oninv); font-weight: 700; }
+.toast .bar { height: 3px; background: rgba(127,127,127,0.3); } .toast .bar i { display: block; height: 100%; background: var(--clay); transform-origin: left; }
+.tour { position: absolute; inset: 0; z-index: 40; }
+.spot { position: absolute; border-radius: 20px; box-shadow: 0 0 0 1600px rgba(20,20,19,0.66), 0 0 0 3px var(--clay); transition: top 0.55s cubic-bezier(0.2, 0.9, 0.25, 1), left 0.55s cubic-bezier(0.2, 0.9, 0.25, 1), width 0.55s cubic-bezier(0.2, 0.9, 0.25, 1), height 0.55s cubic-bezier(0.2, 0.9, 0.25, 1), border-radius 0.55s ease; pointer-events: none; }
+.tcard { position: absolute; left: 16px; right: 16px; background: var(--card); color: var(--ink); border-radius: 22px; padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 20px 48px rgba(0,0,0,0.3); transition: top 0.55s cubic-bezier(0.2, 0.9, 0.25, 1), opacity 0.3s ease; }
+.tbar { height: 4px; border-radius: 2px; background: var(--chip); } .tbar i { display: block; height: 100%; border-radius: 2px; background: var(--brand); transition: width 0.55s cubic-bezier(0.2, 0.9, 0.25, 1); }
+.lock { position: absolute; inset: 0; z-index: 45; background: #2A211C; color: #FFFFFF; padding: 48px 12px 24px; display: flex; flex-direction: column; gap: 10px; transform: translateY(-100%); transition: transform 0.5s cubic-bezier(0.2, 0.9, 0.25, 1); box-sizing: border-box; }
+.lock.on { transform: none; }
+.lock .note { background: #F4F2EC; color: #141413; border-radius: 22px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.bars { display: flex; align-items: center; gap: 5px; height: 56px; justify-content: center; }
+.bars i { width: 6px; border-radius: 3px; background: var(--brand); animation: eq 0.9s ease-in-out infinite; }
+.bars.still i { animation: none; height: 8px !important; }
+@keyframes eq { 0%, 100% { transform: scaleY(0.35); } 50% { transform: scaleY(1); } }
+.scanline { position: absolute; left: 10%; right: 10%; height: 3px; background: var(--clay); box-shadow: 0 0 12px var(--clay); animation: scan 1.6s ease-in-out infinite alternate; }
+@keyframes scan { from { top: 18%; } to { top: 80%; } }
+.stars { display: flex; gap: 6px; }
+.stars button { border: 0; background: transparent; font-size: 40px; line-height: 1; padding: 0; color: var(--line2); transition: transform 0.15s ease, color 0.15s ease; }
+.stars button.on { color: var(--clay); } .stars button:active { transform: scale(1.2); }
+.swipewrap { position: relative; border-radius: 18px; overflow: hidden; background: var(--redbg); }
+.swipewrap .act { position: absolute; top: 0; right: 0; bottom: 0; width: 110px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: var(--red); font-size: 12px; font-weight: 700; }
+.swipe { position: relative; touch-action: pan-y; transition: transform 0.35s cubic-bezier(0.2, 0.9, 0.25, 1.2); cursor: grab; }
+.ur { font-family: var(--urdu); direction: rtl; line-height: 2; }
+.chatwrap { min-height: 100%; display: flex; flex-direction: column; }
+.msgs { flex: 1; display: flex; flex-direction: column; gap: 8px; padding: 14px; }
+.bub { max-width: 78%; padding: 9px 12px; border-radius: 16px 16px 16px 4px; font-size: 14px; line-height: 1.45; background: var(--card); border: var(--bw) solid var(--line); align-self: flex-start; overflow-wrap: anywhere; }
+.bub.me { align-self: flex-end; border-radius: 16px 16px 4px 16px; background: var(--brand); color: var(--onbrand); border-color: transparent; }
+.bub .tm { display: block; font-size: 11px; opacity: 0.75; margin-top: 3px; text-align: right; }
+.sysmsg { align-self: center; max-width: 90%; text-align: center; font-size: 12px; line-height: 1.45; color: var(--amber); background: var(--amberbg); padding: 8px 12px; border-radius: 12px; display: flex; gap: 6px; align-items: flex-start; }
+.sysmsg.neutral { color: var(--ink2); background: var(--chip); }
+.masked { font-weight: 700; letter-spacing: 1px; padding: 0 4px; border-radius: 6px; background: rgba(127,127,127,0.22); }
+.composer { position: sticky; bottom: 0; background: var(--card); border-top: var(--bw) solid var(--line); padding: 8px 10px 12px; display: flex; flex-direction: column; gap: 6px; z-index: 4; }
+.composer .hint { font-size: 12px; color: var(--amber); display: flex; gap: 6px; align-items: flex-start; line-height: 1.4; }
+.composer .cbar { display: flex; gap: 8px; align-items: center; }
+.composer input { flex: 1; height: 44px; border-radius: 22px; border: var(--bw) solid var(--line); padding: 0 16px; background: var(--bg); color: var(--ink); font-size: 15px; min-width: 0; }
+.composer input.flag { border-color: var(--amber); background: var(--amberbg); }
+@media (prefers-reduced-motion: reduce) { .app *, .app *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
+</style>
+
+<div class="stage">
+  <aside class="panel" id="panel" aria-label="Prototype controls">
+    <div class="grp">
+      <h1>Kainat clickable prototype</h1>
+      <p>Everything in the phone works: tap through it like the real app. Use these controls to jump to any screen, trigger live events, and hear each sound. Turn your volume up.</p>
+    </div>
+    <div class="grp">
+      <span class="lbl">View as</span>
+      <div class="btns" id="p-role"><button data-role="buyer">Buyer (SunPeak)</button><button data-role="supplier">Supplier (Al-Noor)</button></div>
+    </div>
+    <div class="grp">
+      <span class="lbl">Buyer screens</span>
+      <div class="btns">
+        <button data-jump="buyer:home">Home</button><button data-jump="buyer:search">Search</button><button data-jump="buyer:voice">Voice search</button>
+        <button data-jump="buyer:bids">Live bids</button><button data-jump="buyer:order">Order sheet</button><button data-jump="buyer:compare">Compare</button>
+        <button data-jump="buyer:share">Share card</button><button data-jump="buyer:pricealert">Price alert</button><button data-jump="buyer:track">Order tracking</button>
+        <button data-jump="buyer:done">Delivered and rate</button><button data-jump="buyer:alerts">Notifications</button><button data-jump="buyer:profile">Profile</button>
+        <button data-jump="buyer:sounds">Sound settings</button><button data-jump="buyer:urdu">Urdu home</button>
+      </div>
+    </div>
+    <div class="grp">
+      <span class="lbl">Supplier screens</span>
+      <div class="btns">
+        <button data-jump="supplier:inbox">Request inbox</button><button data-jump="supplier:grid">Price grid</button><button data-jump="supplier:dispatch">Dispatch photo</button>
+        <button data-jump="supplier:scan">Scan a label</button><button data-jump="supplier:alerts">Notifications</button><button data-jump="supplier:profile">Profile</button>
+      </div>
+    </div>
+    <div class="grp">
+      <span class="lbl">Trigger live events</span>
+      <div class="btns">
+        <button data-sim="tour">Start tutorial</button><button data-sim="bid">New lower bid</button><button data-sim="order">New order (supplier)</button>
+        <button data-sim="outbid">Outbid (supplier)</button><button data-sim="chat">Chat message</button><button data-sim="lock">Lock-screen push</button>
+        <button data-sim="offline" id="p-offline">Go offline</button>
+      </div>
+    </div>
+    <div class="grp">
+      <span class="lbl">Contact after an order</span>
+      <div class="btns">
+        <button data-jump="buyer:ochat">Buyer's order chat</button><button data-jump="supplier:ochat">Supplier's order chat</button>
+        <button data-sim="tryshare">Try sharing a number</button><button data-sim="number">Other side shares a number</button>
+      </div>
+    </div>
+    <div class="grp">
+      <span class="lbl">Hear every sound</span>
+      <div class="btns snd" id="p-sounds"></div>
+    </div>
+    <div class="grp">
+      <span class="lbl">Appearance</span>
+      <div class="btns" id="p-mode"><button data-mode="light">Light</button><button data-mode="dark">Dark</button><button data-mode="sun">Sunlight</button></div>
+    </div>
+    <p>Demo data only. Sounds are made live by the browser; vibration works on Android phones only.</p>
+  </aside>
+
+  <div class="phonewrap" id="phonewrap">
+    <div class="phone" id="phone">
+      <div class="app" id="app" data-mode="light">
+        <div class="scroll" id="scroll"></div>
+        <nav class="nav" id="nav" aria-label="Main"></nav>
+        <div class="layer" id="sheetlayer"><div class="scrim" id="scrim"></div><div class="sheet" id="sheet" role="dialog" aria-modal="true"></div></div>
+        <div class="banner" id="banner" role="status" aria-live="polite"></div>
+        <div class="toast" id="toast" role="status" aria-live="polite"></div>
+        <div class="tour" id="tour" hidden></div>
+        <div class="lock" id="lock" aria-hidden="true"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const app = $('#app'), scrollEl = $('#scroll'), navEl = $('#nav');
+const fmt = (n) => Number(n).toLocaleString('en-PK');
+const rs = (n) => 'Rs ' + fmt(n);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// ---------- icons ----------
+const P = {
+  back: '<path d="M12 4l-6 6 6 6"/>', search: '<circle cx="9" cy="9" r="6"/><path d="M14 14l4 4"/>',
+  mic: '<rect x="7" y="2.5" width="6" height="10" rx="3"/><path d="M4.5 10a5.5 5.5 0 0 0 11 0M10 15.5V18"/>',
+  bell: '<path d="M5 14V9a5 5 0 0 1 10 0v5l1.5 2h-13z"/><path d="M8.5 18a1.6 1.6 0 0 0 3 0"/>', home: '<path d="M3 9l7-6 7 6v8H3z"/>',
+  bids: '<path d="M4 14l4-4 3 3 5-6"/><path d="M12 7h4v4"/>', user: '<circle cx="10" cy="7" r="3.5"/><path d="M3.5 17c1-3.5 3.5-5 6.5-5s5.5 1.5 6.5 5"/>',
+  inbox: '<path d="M3 5h14v10H3z"/><path d="M3 5l7 6 7-6"/>', shop: '<rect x="3" y="3" width="14" height="14" rx="2"/><path d="M3 8h14M8 8v9"/>',
+  truck: '<path d="M2 6h10v8H2z"/><path d="M12 9h3l3 3v2h-6z"/><circle cx="6" cy="15" r="1.5"/><circle cx="15" cy="15" r="1.5"/>',
+  check: '<path d="M4.5 10.5l3.5 3.5 7.5-8"/>', x: '<path d="M5 5l10 10M15 5L5 15"/>', play: '<path d="M6 4l11 6-11 6z" fill="currentColor" stroke="none"/>',
+  cam: '<rect x="3" y="5" width="14" height="11" rx="2"/><circle cx="10" cy="10.5" r="3"/><path d="M7 5l1.5-2h3L13 5"/>',
+  share: '<circle cx="5" cy="10" r="2"/><circle cx="15" cy="5" r="2"/><circle cx="15" cy="15" r="2"/><path d="M7 9l6-3M7 11l6 3"/>',
+  chat: '<path d="M4 15l-1 3 3.5-1.2A7 7 0 1 0 4 15z"/>', chev: '<path d="M8 4l6 6-6 6"/>', bolt: '<path d="M11 2L4 11h5l-1 7 7-9h-5l1-7z"/>',
+  off: '<path d="M2 7.5a12 12 0 0 1 16 0M5 10.5a8 8 0 0 1 10 0M8 13.5a4 4 0 0 1 4 0M3 3l14 14"/>', clock: '<circle cx="10" cy="10" r="7"/><path d="M10 6v4l3 2"/>',
+  scan: '<path d="M3 7V4h3M14 4h3v3M17 13v3h-3M6 16H3v-3M6 10h8"/>', moon: '<path d="M15 12.5A6.5 6.5 0 0 1 7.5 5a6.5 6.5 0 1 0 7.5 7.5z"/>',
+  cols: '<rect x="3" y="4" width="4" height="12" rx="1"/><rect x="8.5" y="4" width="4" height="12" rx="1"/><rect x="14" y="4" width="3" height="12" rx="1"/>',
+  pin: '<path d="M10 18s6-5.2 6-10a6 6 0 0 0-12 0c0 4.8 6 10 6 10z"/><circle cx="10" cy="8" r="2"/>', plus: '<path d="M10 4v12M4 10h12"/>',
+  dl: '<path d="M10 3v10M6 9l4 4 4-4M4 17h12"/>', link: '<path d="M8 12l4-4M7 9.5L5.5 11a2.5 2.5 0 0 0 3.5 3.5L10.5 13M13 10.5L14.5 9A2.5 2.5 0 0 0 11 5.5L9.5 7"/>',
+  sound: '<path d="M3 8v4h3l4 3V5L6 8z"/><path d="M13 7.5a3.5 3.5 0 0 1 0 5M15 5a7 7 0 0 1 0 10"/>', star: '<path d="M10 2.5l2.3 4.8 5.2.6-3.8 3.6 1 5.1L10 14l-4.7 2.6 1-5.1L2.5 7.9l5.2-.6z"/>',
+  help: '<circle cx="10" cy="10" r="7.5"/><path d="M8 7.8a2 2 0 1 1 2.8 1.9c-.5.2-.8.7-.8 1.3v.5M10 14h.01"/>', swap: '<path d="M4 7h12l-3-3M16 13H4l3 3"/>',
+  phone: '<rect x="5.5" y="2" width="9" height="16" rx="2"/><path d="M9 15h2"/>',
+  call: '<path d="M5 3h3l1.5 4-2 1.2a10 10 0 0 0 4.3 4.3L13 10.5l4 1.5v3a2 2 0 0 1-2 2A13 13 0 0 1 3 5a2 2 0 0 1 2-2z"/>',
+  lock: '<rect x="4.5" y="9" width="11" height="8" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/>', warn: '<path d="M10 3l8 14H2z"/><path d="M10 8v4M10 14.5h.01"/>',
+  send: '<path d="M3 10h13M11 5l5 5-5 5"/>', mute: '<path d="M3 8v4h3l4 3V5L6 8z"/><path d="M13 8l4 4M17 8l-4 4"/>',
+};
+const ic = (n, s = 20, sw = 1.8) => `<svg width="${s}" height="${s}" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+const logo = (s = 30) => `<svg width="${s}" height="${s}" viewBox="0 0 20 20" fill="none" stroke="#FAF9F5" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="9" r="3.4"/><path d="M10 2.5v1.6M10 14v1.6M3.5 9h1.6M14.9 9h1.6M5.4 4.4l1.1 1.1M13.5 12.5l1.1 1.1M5.4 13.6l1.1-1.1M13.5 5.5l1.1-1.1M3 17.5h14"/></svg>`;
+
+// ---------- sound and vibration ----------
+let ac = null;
+function audio() {
+  try {
+    ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+    if (ac.state === 'suspended') ac.resume();
+    return ac;
+  } catch { return null; }
+}
+function note(freq, at, dur, { type = 'sine', gain = 0.16, to = null } = {}) {
+  const c = audio(); if (!c) return;
+  const t = c.currentTime + at;
+  const o = c.createOscillator(); const g = c.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq, t);
+  if (to) o.frequency.exponentialRampToValueAtTime(to, t + dur * 0.9);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(c.destination); o.start(t); o.stop(t + dur + 0.05);
+}
+const SOUNDS = {
+  order: { label: 'New order', sub: 'Two bright notes · suppliers', play: () => { note(1046.5, 0, 0.16, { type: 'triangle', gain: 0.2 }); note(1318.5, 0.14, 0.3, { type: 'triangle', gain: 0.2 }); } },
+  outbid: { label: 'You were outbid', sub: 'One low falling tone', play: () => { note(392, 0, 0.42, { gain: 0.22, to: 262 }); } },
+  bid: { label: 'New or lower bid', sub: 'Soft rising chime · buyers', play: () => { note(659, 0, 0.22, { gain: 0.14 }); note(880, 0.13, 0.4, { gain: 0.13 }); } },
+  chat: { label: 'Chat message', sub: 'Quiet tick', play: () => { note(1760, 0, 0.05, { type: 'square', gain: 0.045 }); note(2349, 0.06, 0.05, { type: 'square', gain: 0.035 }); } },
+  placed: { label: 'Bid or order sent', sub: 'Quick upward blip', play: () => { note(523, 0, 0.09, { type: 'triangle', gain: 0.15, to: 784 }); } },
+  undo: { label: 'Undo', sub: 'Soft downward blip', play: () => { note(700, 0, 0.1, { type: 'triangle', gain: 0.12, to: 440 }); } },
+  done: { label: 'Delivered', sub: 'Calm four-note rise', play: () => { [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => note(f, i * 0.09, 0.45 - i * 0.05, { type: 'triangle', gain: 0.14 })); } },
+  ring: { label: 'Call ringing', sub: 'Two-tone ring through Kainat', play: () => { [0, 0.5].forEach((at) => { note(440, at, 0.4, { gain: 0.09 }); note(480, at, 0.4, { gain: 0.09 }); }); } },
+  warn: { label: 'Number blocked', sub: 'Two low warning notes', play: () => { note(349, 0, 0.18, { type: 'triangle', gain: 0.16 }); note(262, 0.16, 0.3, { type: 'triangle', gain: 0.16 }); } },
+};
+const S = {
+  role: 'buyer', view: 'home', stack: [], mode: 'light', lang: 'en', offline: false, timers: [],
+  sound: { master: true, order: true, outbid: true, bid: false, chat: false, vibrate: true },
+  unread: 3, sUnread: 2, toured: false, tourStep: -1, liveSimDone: false, pick: null, qty: 4, address: 'site', proof: '',
+  alertTarget: 300000, stars: 0, tags: ['On time'], filter: 'all', eta: 'today', dispatchPhoto: false, pct: 2, scanFound: false,
+  bids: [
+    { id: 'sc', name: 'Sun City Traders', rating: '★ 4.7', stock: 6, lead: 'same day', price: 328000, first: 334000, token: 25, badges: ['You: 1 deal', 'Verified'] },
+    { id: 'gv', name: 'Green Volt Wholesale', rating: 'New · 1 rating', stock: 40, lead: '1 day', price: 334000, first: 334000, token: 10, badges: [] },
+    { id: 'bp', name: 'Bright Power Co.', rating: '2 deals', stock: 100, lead: '4 days', price: 336500, first: 339000, token: 20, badges: [] },
+  ],
+  notes: [
+    { k: 'bids', icon: 'bids', title: 'Sun City lowered their bid', body: 'Growatt 10 kW × 4 · now Rs 328,000', time: '2 min', go: 'bids', unread: true },
+    { k: 'orders', icon: 'truck', title: 'Order #9 dispatched', body: 'Al-Noor · Longi Hi-MO 6 × 40', time: '1 h', go: 'track', unread: true },
+    { k: 'ratings', icon: 'star', title: 'Al-Noor rated your deal', body: 'Rate them too to see what they said', time: '3 h', go: 'done', unread: true },
+    { k: 'bids', icon: 'cols', title: '3 updates batched', body: '2 new bids, 1 chat message', time: 'Yesterday', go: 'bids', unread: false },
+  ],
+  sNotes: [
+    { k: 'orders', icon: 'truck', title: 'New order from Green Roof', body: 'Longi Hi-MO 6 × 40 · Rs 696,000', time: '2 h', go: 'dispatch', unread: true },
+    { k: 'bids', icon: 'bids', title: 'You were outbid', body: "SunPeak's Growatt × 4 · lowest Rs 328,000", time: '4 h', go: 'inbox', unread: true },
+    { k: 'ratings', icon: 'star', title: 'SunPeak rated your deal', body: '5 ★ · "Original stock, on time"', time: 'Yesterday', go: 'inbox', unread: false },
+  ],
+  inbox: [
+    { id: 'r2', what: 'Growatt SPF 10000 ES × 4', who: 'SunPeak Energy · ★ 5.0 · traded 3×', where: 'Lahore, by 7 Nov', stock: 18, price: 325000, status: 'new', ago: '4 min ago' },
+    { id: 'r1', what: 'Pylontech US5000 × 8', who: 'Bright Solar Works · new buyer', where: 'Lahore, by 10 Nov', stock: 22, price: 312000, status: 'new', ago: '1 h ago' },
+    { id: 'r3', what: 'Narada 51.2V 100Ah × 6', who: 'Bright Solar Works · new', where: 'Lahore', stock: 0, price: 0, status: 'new', ago: '2 h ago', swipe: true },
+  ],
+  orderWaiting: true,
+  // Order chats: the buyer's chat with Al-Noor about order #9, the supplier's chat with Green Roof about order #8.
+  chats: {
+    buyer: [
+      { me: false, text: 'Assalam o Alaikum. Order #9 left Hall Road at 10:40. You can follow it on the order page.', t: '10:45' },
+      { me: true, text: 'Walaikum Assalam. Please ask the driver to come to the back gate.', t: '10:52' },
+      { me: false, text: 'Ji, noted. He will reach by 6 pm.', t: '10:53' },
+    ],
+    supplier: [
+      { me: false, text: 'Salam. Token sent for order #8, screenshot is attached on the order.', t: '09:12' },
+      { me: true, text: 'Received, thank you. Panels will be loaded today.', t: '09:20' },
+    ],
+  },
+  attempts: { buyer: 0, supplier: 0 }, pendingText: '',
+  grid: [
+    { n: 'Growatt SPF 10000 ES', p: 325000, q: 18 }, { n: 'Longi Hi-MO 6 580 W', p: 17800, q: 400 }, { n: 'Pylontech US5000', p: 312000, q: 22 },
+    { n: 'Growatt SPF 6000 ES Plus', p: 182000, q: 0 }, { n: 'Deye SUN-12K', p: 605000, q: 4, fixed: true },
+  ],
+};
+function play(name, { preview = false } = {}) {
+  if (!preview) {
+    if (!S.sound.master) return;
+    if (name in S.sound && S.sound[name] === false) return;
+  }
+  SOUNDS[name]?.play();
+}
+// A tiny tick for taps (tutorial steps, stars); silent when app sounds are off.
+function uiTick() { if (S.sound.master) SOUNDS.chat.play(); }
+function buzz(pattern) { if (S.sound.vibrate) { try { navigator.vibrate?.(pattern); } catch { /* not supported */ } } }
+
+// ---------- phone numbers stay off the platform ----------
+// Pakistani mobiles (03xx xxxxxxx, +92 3xx…, 0092…, 3xx… without the 0), landlines (042 xxxxxxxx), numbers broken up
+// with spaces, dashes or dots, Urdu and Arabic digits, and WhatsApp links. Prices like "Rs 325,000" never match.
+const toLatin = (s) => s.replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06F0)).replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660));
+const PHONE_RUN = /\+?[0-9][0-9\s\-.()]{8,}[0-9]/g;
+// A run of digits is a phone number if it is a mobile (with or without 0 / 92, even joined to other digits) or a landline.
+const isPhoneDigits = (d) => d.length >= 10 && (/^3\d{9}$/.test(d) || /(?:0|92)3\d{9}/.test(d) || /^(?:92|0092|0)[1-9]\d{8,9}$/.test(d));
+function phoneIn(text) {
+  const t = toLatin(text);
+  if (/wa\.me\/|whatsapp\.com\/|api\.whatsapp/i.test(t)) return true;
+  return (t.match(PHONE_RUN) || []).some((run) => isPhoneDigits(run.replace(/\D/g, '')));
+}
+function maskPhones(text) {
+  return esc(toLatin(text)).replace(PHONE_RUN, (run) => (isPhoneDigits(run.replace(/\D/g, '')) ? '<span class="masked" aria-label="hidden number">•••• •••••••</span>' : run)).replace(/(?:https?:\/\/)?(?:wa\.me|api\.whatsapp\.com|chat\.whatsapp\.com)\/\S*/gi, '<span class="masked" aria-label="hidden link">link hidden</span>');
+}
+const PARTNER = {
+  buyer: { name: 'Al-Noor Solar Imports', short: 'Al-Noor', initials: 'AN', order: '#9', meta: '★ 4.8 · Importer', reply: 'Ji, noted. Anything else for the delivery?' },
+  supplier: { name: 'Green Roof Solutions', short: 'Green Roof', initials: 'GR', order: '#8', meta: '★ 4.0 · Installer', reply: 'Thanks, we will keep the gate open.' },
+};
+const partner = () => PARTNER[S.role];
+const nowTime = () => new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
+// ---------- timers that belong to a screen ----------
+const later = (fn, ms) => { const t = setTimeout(fn, ms); S.timers.push(t); return t; };
+const clearTimers = () => { S.timers.forEach(clearTimeout); S.timers = []; };
+
+// ---------- shared pieces ----------
+const sorted = () => [...S.bids].sort((a, b) => a.price - b.price);
+const lowest = () => sorted()[0];
+function top(title, { eyebrow = '', back = true, right = '' } = {}) {
+  return `<div class="top">${back ? `<button class="iconbtn plain" data-back aria-label="Back">${ic('back', 22)}</button>` : '<span style="width:6px"></span>'}
+    <div class="t">${eyebrow ? `<span class="small">${eyebrow}</span>` : ''}<b>${title}</b></div>${right}</div>`;
+}
+const offlineBar = () => S.offline ? `<div class="offline">${ic('off', 18)}<span><b>You're offline.</b> ${S.role === 'supplier' && queued() ? `${queued()} bid${queued() > 1 ? 's' : ''} will send when you're back.` : 'Actions will send when you are back.'}</span></div>` : '';
+const queued = () => S.inbox.filter((r) => r.status === 'queued').length;
+function strip() {
+  if (S.role !== 'buyer') return '';
+  const l = lowest();
+  return `<button class="strip" data-go="bids"><span class="livedot"></span><span style="flex:1;text-align:left;font-weight:600">Growatt × 4 · lowest <span class="num" id="strip-low">${Math.round(l.price / 1000)}k</span></span><span style="opacity:.8">31 h</span><span class="go">Open</span></button>`;
+}
+function bell(id = '') {
+  const n = S.role === 'buyer' ? S.unread : S.sUnread;
+  return `<button class="iconbtn" ${id ? `id="${id}"` : ''} data-go="alerts" aria-label="Notifications${n ? `, ${n} unread` : ''}">${ic('bell')}${n ? `<span class="dot">${n}</span>` : ''}</button>`;
+}
+
+// ---------- screens ----------
+const V = {};
+V.home = () => S.lang === 'ur' ? V.urdu() : `${offlineBar()}<div class="pad">
+  <div class="hrow"><div><div class="eyebrow">Assalam o Alaikum</div><div class="h1">SunPeak Energy</div></div>${bell('t-bell')}</div>
+  <div class="search" id="t-search"><span style="color:var(--muted);display:flex">${ic('search')}</span><button class="ph" data-go="search" style="border:0">Growatt 10 kW, Longi 580 W…</button><button class="iconbtn plain" data-go="voice" aria-label="Search by voice" style="color:var(--brand)">${ic('mic')}</button></div>
+  <div id="t-request" class="tile tint" style="flex-direction:row;align-items:center;padding:12px 12px 12px 16px">
+    <span style="flex:1;display:flex;flex-direction:column;gap:2px"><b style="font-size:15px">Need a fresh price?</b><span class="small" style="color:var(--brandT)">Post a request · suppliers with stock bid</span></span>
+    <button class="btn sm" data-act="postRequest" aria-label="Post a request" style="width:44px;padding:0">${ic('plus', 22)}</button></div>
+  <button class="tile" id="t-live" data-go="bids">
+    <span class="hrow"><span class="badge ok"><span class="livedot"></span>Live bidding</span><span class="small">closes in 31 h</span></span>
+    <b style="font-size:17px">Growatt SPF 10000 ES × 4</b>
+    ${sorted().slice(0, 2).map((b, i) => `<span class="row" style="font-size:13px;gap:8px"><b style="width:16px;color:${i ? 'var(--ink2)' : 'var(--brand)'}">${i + 1}</b><span style="flex:1">${b.name}</span><b class="num">${fmt(b.price)}</b></span>`).join('')}
+    <span style="font-size:14px;font-weight:600;color:var(--brand)">See all ${S.bids.length} bids →</span></button>
+  <div class="grid2">
+    <button class="tile tint" data-go="done" style="min-height:128px"><span style="font-size:12px;font-weight:600;color:var(--brandT)">Rate your deal</span><b style="font-size:15px;line-height:1.25">Al-Noor Solar Imports</b><span style="font-size:20px;letter-spacing:2px;color:var(--clay)" aria-hidden="true">${S.stars ? '★'.repeat(S.stars) + '☆'.repeat(5 - S.stars) : '☆☆☆☆☆'}</span><span class="small">${S.stars ? 'Thanks for rating' : 'Closes 11 Nov'}</span></button>
+    <button class="tile" data-go="track" style="min-height:128px"><span style="font-size:12px;font-weight:600;color:var(--blue)">Order #9 · on the way</span><b style="font-size:15px;line-height:1.25">Longi Hi-MO 6 × 40</b>
+      <span class="grid3" style="grid-template-columns:repeat(4,minmax(0,1fr));gap:4px"><i style="height:6px;border-radius:3px;background:var(--blue)"></i><i style="height:6px;border-radius:3px;background:var(--blue)"></i><i style="height:6px;border-radius:3px;background:var(--blue)"></i><i style="height:6px;border-radius:3px;background:var(--line)"></i></span><span class="small">Dispatched today</span></button>
+  </div>
+  <button class="tile" data-act="priceAlert" style="flex-direction:row;align-items:center;gap:14px">
+    <span style="flex:1;display:flex;flex-direction:column;gap:2px"><span class="small">Price watch · 30 days</span><b style="font-size:15px">Pylontech US5000</b><span style="font-size:13px"><b class="num">from Rs 305,000</b> <span class="down">↓ 2.1%</span></span></span>
+    <svg width="104" height="42" viewBox="0 0 110 44" fill="none" aria-hidden="true"><polyline points="0,8 14,10 28,9 42,15 56,13 70,20 84,24 98,29 110,32" stroke="var(--ok)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+</div>`;
+
+V.urdu = () => `<div class="pad ur" dir="rtl">
+  <div class="hrow"><div><div class="eyebrow">السلام علیکم</div><div class="h1" style="line-height:1.9">سن پیک انرجی</div></div>
+    <div class="seg" dir="ltr" style="font-family:var(--font)"><button data-act="lang" data-v="en">EN</button><button class="on" data-act="lang" data-v="ur" style="font-family:var(--urdu)">اردو</button></div></div>
+  <div class="search" dir="rtl"><span style="color:var(--muted);display:flex">${ic('search')}</span><button class="ph" data-go="search" style="border:0;text-align:right;font-family:var(--urdu);font-size:14px">ماڈل یا برانڈ تلاش کریں</button></div>
+  <div class="chips"><span class="chip on">سب</span><span class="chip">سولر پینل</span><span class="chip">انورٹر</span><span class="chip">بیٹری</span></div>
+  <button class="tile" data-go="bids" dir="rtl" style="text-align:right;font-family:var(--urdu)">
+    <span class="hrow"><span class="badge ok" style="font-family:var(--urdu);height:28px">لائیو بولی</span><span class="small">31 گھنٹے باقی</span></span>
+    <b dir="ltr" style="font-family:var(--font);font-size:17px;text-align:right">Growatt SPF 10000 ES × 4</b>
+    <span class="small">${S.bids.length} بولیاں · لاہور</span>
+    <span class="row" style="font-size:13px"><b style="font-family:var(--font);color:var(--brand)">1</b><span dir="ltr" style="flex:1;text-align:right;font-family:var(--font)">${lowest().name}</span><b dir="ltr" class="num" style="font-family:var(--font)">Rs ${fmt(lowest().price)}</b></span>
+    <b style="color:var(--brand)">تمام بولیاں دیکھیں ←</b></button>
+  <div class="grid2"><button class="tile tint" data-go="done" style="text-align:right;font-family:var(--urdu)"><span style="font-size:12px;color:var(--brandT)">اپنے سودے کی ریٹنگ دیں</span><b dir="ltr" style="font-family:var(--font);font-size:14px;text-align:right">Al-Noor Solar Imports</b></button>
+    <button class="tile" data-go="track" style="text-align:right;font-family:var(--urdu)"><span style="font-size:12px;color:var(--blue)">آرڈر #9 راستے میں ہے</span><b dir="ltr" style="font-family:var(--font);font-size:14px;text-align:right">Longi Hi-MO 6 × 40</b></button></div>
+  <span class="small" style="font-family:var(--font);direction:ltr;text-align:left">Prototype: only the home screen and menu are translated. The Urdu wording needs a native speaker's check.</span>
+</div>`;
+
+const CATALOG = [
+  { n: 'Growatt SPF 10000 ES', c: 'Inverter · 10 kW', s: 4, from: 309000, go: 'bids' }, { n: 'Longi Hi-MO 6 580 W', c: 'Solar panel · 580 W', s: 5, from: 17100, go: 'compare' },
+  { n: 'Pylontech US5000', c: 'Battery · 4.8 kWh', s: 4, from: 305000, go: 'compare' }, { n: 'JA Solar JAM72S30 550 W', c: 'Solar panel · 550 W', s: 2, from: 15600, go: 'compare' },
+  { n: 'Growatt SPF 6000 ES Plus', c: 'Inverter · 6 kW', s: 3, from: 182000, go: 'compare' }, { n: 'Inverex Nitrox 6 kW', c: 'Inverter · 6 kW', s: 2, from: 166000, go: 'compare' },
+  { n: 'Deye SUN-12K-SG04LP3', c: 'Inverter · 12 kW', s: 2, from: 605000, go: 'compare' }, { n: 'Narada 51.2V 100Ah', c: 'Battery · 5.1 kWh', s: 1, from: 268000, go: 'compare' },
+];
+const catRows = (q) => {
+  const t = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const rows = CATALOG.filter((m) => t.every((w) => (m.n + ' ' + m.c).toLowerCase().includes(w)));
+  return rows.map((m) => `<button class="li" data-go="${m.go}" data-model="${esc(m.n)}"><span class="grow"><span class="small">${m.c}</span><b style="font-size:15px">${m.n}</b><span style="font-size:13px;color:var(--ink2)">${m.s} suppliers · from <b class="num">${rs(m.from)}</b></span></span>${ic('chev', 18)}</button>`).join('')
+    || `<div style="padding:16px;display:flex;flex-direction:column;gap:10px"><span>No model matches “${esc(q)}”.</span><button class="btn2" data-act="postRequest">Post a request for it</button></div>`;
+};
+V.search = () => `${strip()}${offlineBar()}<div class="pad">
+  <div class="h1">Find equipment</div>
+  <label class="search" for="q"><span style="color:var(--muted);display:flex">${ic('search')}</span><input id="q" type="search" placeholder="Model or brand" autocomplete="off"><button class="iconbtn plain" data-go="voice" aria-label="Search by voice" style="color:var(--brand)">${ic('mic')}</button></label>
+  <div class="chips"><button class="chip on" data-q="">All</button><button class="chip" data-q="panel">Panels</button><button class="chip" data-q="inverter">Inverters</button><button class="chip" data-q="battery">Batteries</button></div>
+  <div class="card list" id="results">${catRows('')}</div></div>`;
+
+V.voice = () => `${top('Voice search', { eyebrow: 'Urdu or English' })}<div class="pad" style="padding-bottom:140px">
+  <div class="search" style="border:2px solid var(--brand)"><span style="color:var(--brand);display:flex">${ic('mic')}</span><span id="vtext" style="flex:1;font-size:16px"></span></div>
+  <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:10px 0">
+    <span id="vstate" style="font-size:14px;color:var(--ink2)">Listening · speak in Urdu or English</span>
+    <span class="ur" style="font-size:15px;color:var(--muted)">اردو یا انگریزی میں بولیں</span>
+    <div class="bars" id="vbars">${[14, 30, 48, 36, 54, 26, 40, 18, 10].map((h, i) => `<i style="height:${h}px;animation-delay:${i * 0.08}s"></i>`).join('')}</div></div>
+  <div id="vres" hidden><span class="cap">We heard “Growatt 10 kW”</span>
+    <div class="card list" style="margin-top:8px">
+      <button class="li" data-go="bids"><span class="grow"><b style="font-size:15px">Growatt SPF 10000 ES</b><span style="font-size:13px;color:var(--ink2)">Inverter · 10 kW · live bids · from <b class="num">Rs 309,000</b></span></span>${ic('chev', 18)}</button>
+      <button class="li" data-go="compare"><span class="grow"><b style="font-size:15px">Growatt SPF 6000 ES Plus</b><span style="font-size:13px;color:var(--ink2)">Inverter · 6 kW · closest smaller size</span></span>${ic('chev', 18)}</button>
+      <button class="li" data-act="postRequest" style="background:var(--tint)"><span class="grow"><b style="font-size:15px;color:var(--brandT)">Post a request for any 10 kW inverter</b><span style="font-size:13px;color:var(--ink2)">Suppliers bid with what they have</span></span></button></div></div>
+  <div style="position:absolute;left:0;right:0;bottom:24px;display:flex;flex-direction:column;align-items:center;gap:8px">
+    <button class="btn" data-act="listen" aria-label="Speak again" style="width:84px;height:84px;border-radius:42px;padding:0;box-shadow:0 0 0 10px var(--tint)">${ic('mic', 34)}</button><span class="small">Tap to speak again</span></div></div>`;
+
+function boardRows() {
+  return sorted().map((b, i) => `<div class="brow" data-key="${b.id}"><span class="rank">${i + 1}</span><div class="meta">
+    <div class="l1"><span class="nm">${b.name}</span><span class="pr" data-price="${b.id}">${fmt(b.price)}</span></div>
+    <div class="l2"><span class="sub">${b.rating} · ${b.stock} in stock · ${b.lead}</span>${b.first > b.price ? `<span class="down">↓ ${fmt(b.first - b.price)}</span>` : ''}</div>
+    ${i === 0 || b.badges.length ? `<div class="chips" style="gap:6px">${i === 0 ? '<span class="badge brand">Best bid</span>' : ''}${b.badges.map((x) => `<span class="badge ${x.startsWith('You') ? 'ok' : 'blue'}">${x}</span>`).join('')}</div>` : ''}
+    ${i > 0 ? `<button class="btn2" data-act="orderFrom" data-id="${b.id}" style="height:36px;align-self:flex-start;font-size:13px">Accept this bid</button>` : ''}
+  </div></div>`).join('');
+}
+const hasAlNoor = () => S.bids.some((b) => b.id === 'an');
+V.bids = () => `${top('Growatt SPF 10000 ES × 4', { eyebrow: 'Request #2 · Lahore · open bidding', right: `<button class="iconbtn plain" data-act="share" aria-label="Share as image">${ic('share')}</button>` })}${offlineBar()}
+  <div class="pad" style="padding-bottom:8px">
+    <span class="row" style="font-size:13px;color:var(--ok);font-weight:600;gap:8px"><span class="livedot"></span>Live · bids update as they arrive</span>
+    <div class="grid3"><div class="stat"><span class="small">Lowest</span><b id="st-low">${fmt(lowest().price)}</b></div><div class="stat"><span class="small">Bids</span><b id="st-n">${S.bids.length}</b></div><div class="stat"><span class="small">Closes in</span><b>31 h</b></div></div>
+    <div class="card board" id="board">${boardRows()}</div>
+    <button class="btn2" data-go="compare" data-model="Growatt SPF 10000 ES">${ic('cols', 18)} Compare offers side by side</button>
+    ${hasAlNoor() ? '' : `<span class="cap">In stock, not bid yet</span>
+    <div class="card" style="border-style:dashed;padding:12px 14px;display:flex;align-items:center;gap:12px"><span style="flex:1;display:flex;flex-direction:column;gap:2px"><b>Al-Noor Solar Imports</b><span class="sub">Shop price <b class="num">325,000</b> · 18 in stock</span></span><button class="btn2" data-act="askBid" style="height:40px">Ask to bid</button></div>`}
+  </div>
+  <div class="bottombar"><span class="row" style="justify-content:space-between;font-size:13px"><span class="sub" id="bb-who">${lowest().name} · ${S.qty} × ${fmt(lowest().price)}</span><b class="num" id="bb-total">${rs(lowest().price * S.qty)}</b></span>
+    <button class="btn block" data-act="orderFrom" data-id="">Accept bid</button></div>`;
+
+// Offers for the compare table. The Growatt request uses the live bids; any other model uses sample listings.
+const REPLY = { sc: ['~25 min', 25], gv: ['~1 h', 60], bp: ['~3 h', 180], an: ['~10 min', 10] };
+const WITH = { sc: 1, an: 3, gv: 0, bp: 0 };
+const LEAD = { 'same day': 0, '1 day': 1, '4 days': 4 };
+function compareCols() {
+  if ((S.model || '').startsWith('Growatt SPF 10000')) {
+    return sorted().slice(0, 3).map((b) => ({ id: b.id, n: b.name.replace(/ (Traders|Wholesale|Solar Imports|Co\.)$/, ''), p: b.price, s: b.stock, tk: b.token, d: b.lead, dd: LEAD[b.lead] ?? 9,
+      r: b.rating.startsWith('★') ? b.rating : 'New', rep: REPLY[b.id][0], rp: REPLY[b.id][1], w: WITH[b.id] }));
+  }
+  return [
+    { i: 0, n: 'New Era Energy', p: 305000, s: 14, tk: 20, d: '1 day', dd: 1, r: 'New', rep: '~2 h', rp: 120, w: 0 },
+    { i: 1, n: 'Al-Noor Imports', p: 312000, s: 22, tk: 10, d: '1 day', dd: 1, r: '★ 4.8', rep: '~10 min', rp: 10, w: 3 },
+    { i: 2, n: 'Sun City Traders', p: 316000, s: 6, tk: 25, d: 'Same day', dd: 0, r: '★ 4.7', rep: '~25 min', rp: 25, w: 1 },
+  ];
+}
+V.compare = () => {
+  const cols = compareCols();
+  const idx = (f, dir) => { const v = cols.map(f); const t = dir === 'min' ? Math.min(...v) : Math.max(...v); return v.indexOf(t); };
+  const best = { p: idx((c) => c.p, 'min'), s: idx((c) => c.s, 'max'), t: idx((c) => c.tk, 'min'), d: idx((c) => c.dd, 'min'), rep: idx((c) => c.rp, 'min'), w: idx((c) => c.w, 'max') };
+  const show = { p: (c) => fmt(c.p), s: (c) => c.s, t: (c) => c.tk + '%', d: (c) => c.d, r: (c) => c.r, rep: (c) => c.rep, w: (c) => `${c.w} deal${c.w === 1 ? '' : 's'}` };
+  const row = (lbl, key) => `<tr><th scope="row">${lbl}</th>${cols.map((c, i) => `<td class="${best[key] === i ? 'best' : ''}">${show[key](c)}</td>`).join('')}</tr>`;
+  const cheap = cols[best.p], fast = cols[best.rep];
+  const advice = cheap === fast ? `${cheap.n} is both the cheapest and the fastest to reply.`
+    : `${cheap.n} is cheapest${cheap.w ? '' : ' but you have not traded with them yet'}. ${fast.n} costs ${rs(fast.p - cheap.p)} more per unit, replies fastest${fast.w ? `, and you have traded with them ${fast.w} time${fast.w === 1 ? '' : 's'}` : ''}.`;
+  return `${top(S.model || 'Pylontech US5000', { eyebrow: 'Compare 3 offers' })}<div class="pad">
+    <div class="card" style="overflow:hidden"><table class="cmp"><thead><tr><th style="width:80px"></th>${cols.map((c) => `<th scope="col">${c.n}</th>`).join('')}</tr></thead>
+    <tbody class="num">${row('Price', 'p')}${row('In stock', 's')}${row('Token', 't')}${row('Delivery', 'd')}${row('Rating', 'r')}${row('Replies in', 'rep')}${row('With you', 'w')}
+    <tr><th></th>${cols.map((c, i) => `<td style="padding:8px 4px"><button class="${i === best.rep ? 'btn' : 'btn2'}" ${c.id ? `data-act="orderFrom" data-id="${c.id}"` : `data-act="orderCompare" data-i="${c.i}"`} style="height:40px;width:100%;font-size:13px;border-radius:10px;padding:0">Order</button></td>`).join('')}</tr></tbody></table></div>
+    <span class="row small" style="gap:8px"><i style="width:14px;height:14px;border-radius:4px;background:var(--tint);display:inline-block"></i>Best in each row</span>
+    <div class="card" style="padding:12px 14px;font-size:13px;line-height:1.5;color:var(--ink2)">${advice}</div>
+    <button class="btn2" data-act="priceAlert">${ic('bell', 18)} Alert me when the price drops</button></div>`;
+};
+
+V.track = () => `${top('Order #9', { eyebrow: 'from Al-Noor Solar Imports' })}<div class="pad">
+  <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:4px"><b style="font-size:16px">Longi Hi-MO 6 580 W × 40</b><span class="sub">Locked price Rs 17,800 each · total <b class="num">Rs 712,000</b></span></div>
+  ${contactCard(PARTNER.buyer, 'Number hidden · message or call through Kainat')}
+  <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:12px">
+    ${[['Order sent', '9 Oct, 10:00', true], ['Accepted by supplier', '9 Oct, 10:40', true], ['Dispatched', 'Today, 10:42', true], ['Delivered', 'waiting for you', false]].map(([l, t, d], i) => `<div class="row" style="align-items:flex-start;gap:10px"><span style="width:22px;height:22px;border-radius:11px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:${d ? 'var(--ok)' : 'var(--chip)'};color:#fff">${d ? ic('check', 14, 2.4) : ''}</span><span style="display:flex;flex-direction:column;gap:1px"><b style="font-size:14px;${d ? '' : 'color:var(--muted)'}">${l}</b><span class="small">${t}</span></span></div>${i === 2 ? `<div style="margin-left:32px;display:flex;flex-direction:column;gap:8px">
+      <div role="img" aria-label="Dispatch photo: loaded truck" style="height:120px;border-radius:14px;background:var(--chip);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--muted);font-size:12px">${ic('truck', 36, 1.4)}Photo from Al-Noor · 40 panels loaded</div>
+      <span class="sub">Driver Imran · LES 4821 · arriving this evening · driver's number hidden, call him through Kainat</span></div>` : ''}`).join('')}
+  </div>
+  <button class="btn block" data-act="delivered">${ic('check', 20, 2.2)} Mark delivered</button>
+  <span class="small" style="text-align:center">Only confirm once the goods have arrived and match the order.</span></div>`;
+
+V.done = () => `<div class="pad" style="padding-top:44px;gap:18px">
+  <div style="display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center">
+    <span id="donecheck" style="width:104px;height:104px;border-radius:52px;background:var(--okbg);color:var(--ok);display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 12px var(--okbg)">${ic('check', 52, 2.2)}</span>
+    <div class="h1">Delivered</div><span style="font-size:15px;color:var(--ink2);line-height:1.45">Longi Hi-MO 6 580 W × 40 from Al-Noor Solar Imports</span></div>
+  <div class="grid2"><div class="stat"><span class="small">Deals with Al-Noor</span><b style="font-size:22px">4 <span class="down">+1</span></b></div><div class="stat"><span class="small">Saved vs first bid</span><b style="font-size:22px">Rs 16,000</b></div></div>
+  <div class="card" style="padding:16px;display:flex;flex-direction:column;gap:12px">
+    <b style="font-size:16px">How was Al-Noor this time?</b>
+    <div class="stars" role="radiogroup" aria-label="Stars">${[1, 2, 3, 4, 5].map((n) => `<button role="radio" aria-checked="${S.stars === n}" aria-label="${n} star${n > 1 ? 's' : ''}" data-act="star" data-n="${n}" class="${n <= S.stars ? 'on' : ''}">★</button>`).join('')}</div>
+    <div class="chips" style="gap:6px">${['On time', 'Genuine stock', 'Price as quoted', 'Good packing', 'Responsive'].map((t) => `<button class="chip ${S.tags.includes(t) ? 'on' : ''}" data-act="tag" data-t="${t}" style="height:32px;font-size:13px">${t}</button>`).join('')}</div>
+    <label class="field"><span>Comment (optional)</span><input id="rcomment" placeholder="What went well, or what could be better"></label>
+    <span class="small">Hidden until Al-Noor rates you too, or for 14 days.</span></div>
+  <button class="btn block" data-act="submitRating">Submit rating</button>
+  <button class="btn2 block" data-go="home" style="border:0">Later</button></div>`;
+
+const noteList = (list) => list.filter((n) => S.filter === 'all' || n.k === S.filter).map((n, i) => `<button class="li ${n.unread ? 'unread' : ''}" data-note="${list.indexOf(n)}">
+  <span class="circ" style="${n.unread ? '' : 'background:var(--chip);color:var(--ink2)'}">${ic(n.icon, 18)}</span>
+  <span class="grow"><b style="font-size:14px">${n.title}</b><span style="font-size:13px;color:var(--ink2)">${n.body}</span></span>
+  <span style="display:flex;flex-direction:column;align-items:flex-end;gap:6px"><span class="small">${n.time}</span>${n.unread ? '<span style="width:8px;height:8px;border-radius:4px;background:var(--brand)" aria-label="Unread"></span>' : ''}</span></button>`).join('') || '<div style="padding:16px" class="sub">Nothing here yet.</div>';
+V.alerts = () => {
+  const list = S.role === 'buyer' ? S.notes : S.sNotes;
+  const n = list.filter((x) => x.unread).length;
+  return `${strip()}${offlineBar()}<div class="pad">
+  <div class="hrow"><div><div class="eyebrow">${n ? `${n} new` : 'All caught up'}</div><div class="h1">Notifications</div></div><button class="btn2" data-act="readAll" style="height:40px">Mark all read</button></div>
+  <div class="chips">${[['all', 'All'], ['bids', 'Bids'], ['orders', 'Orders'], ['ratings', 'Ratings']].map(([k, l]) => `<button class="chip ${S.filter === k ? 'on' : ''}" data-act="filter" data-k="${k}">${l}</button>`).join('')}</div>
+  <div class="card list" style="overflow:hidden">${noteList(list)}</div>
+  <button class="tile" data-go="sounds" style="flex-direction:row;align-items:center;background:var(--chip);border-color:transparent">${ic('moon', 18)}<span style="flex:1;font-size:13px">WhatsApp quiet 10 pm – 8 am · sounds and vibration</span><b style="color:var(--brand);font-size:13px">Change</b></button></div>`;
+};
+
+V.profile = () => {
+  const b = S.role === 'buyer';
+  return `${b ? strip() : ''}<div class="pad">
+  <div class="row"><span style="width:56px;height:56px;border-radius:16px;background:var(--inv);color:var(--oninv);font-weight:700;font-size:18px;display:flex;align-items:center;justify-content:center">${b ? 'SP' : 'AN'}</span>
+    <div style="display:flex;flex-direction:column;gap:2px"><div class="h2">${b ? 'SunPeak Energy' : 'Al-Noor Solar Imports'}</div><span class="small">${b ? 'Installer · Lahore · ★ 5.0 from 3 suppliers' : 'Importer · Hall Road · ★ 4.8 from 12 buyers'}</span></div></div>
+  <div class="card list" style="overflow:hidden">
+    <button class="li" data-go="sounds"><span class="circ" style="background:var(--tint)">${ic('sound', 18)}</span><span class="grow"><b>Sound and vibration</b><span class="small">${S.sound.master ? 'On' : 'Muted'} · quiet 10 pm – 8 am</span></span>${ic('chev', 18)}</button>
+    <button class="li" data-act="tour"><span class="circ" style="background:var(--tint)">${ic('help', 18)}</span><span class="grow"><b>Replay the tutorial</b><span class="small">4 quick steps</span></span>${ic('chev', 18)}</button>
+    <button class="li" data-act="lock"><span class="circ" style="background:var(--tint)">${ic('phone', 18)}</span><span class="grow"><b>Show a lock-screen alert</b><span class="small">How push notifications look</span></span>${ic('chev', 18)}</button>
+    <button class="li" data-act="role"><span class="circ" style="background:var(--tint)">${ic('swap', 18)}</span><span class="grow"><b>Switch to ${b ? 'supplier' : 'buyer'} view</b><span class="small">Prototype only</span></span>${ic('chev', 18)}</button>
+  </div>
+  <div class="field"><span>Appearance</span><div class="seg">${[['light', 'Light'], ['dark', 'Dark'], ['sun', 'Sunlight']].map(([k, l]) => `<button class="${S.mode === k ? 'on' : ''}" data-act="mode" data-v="${k}">${l}</button>`).join('')}</div></div>
+  <div class="field"><span>Language</span><div class="seg"><button class="${S.lang === 'en' ? 'on' : ''}" data-act="lang" data-v="en">English</button><button class="${S.lang === 'ur' ? 'on' : ''}" data-act="lang" data-v="ur" style="font-family:var(--urdu)">اردو</button></div></div>
+</div>`;
+};
+
+V.sounds = () => `${top('Sound and vibration')}<div class="pad">
+  <label class="card row" style="padding:14px" for="sw-master"><span style="flex:1;display:flex;flex-direction:column;gap:2px"><b style="font-size:15px">App sounds</b><span class="small">Plays while Kainat is open. Push alerts use your phone's sound.</span></span><input class="sw" type="checkbox" id="sw-master" data-snd="master" ${S.sound.master ? 'checked' : ''}></label>
+  <span class="cap">Play a sound for</span>
+  <div class="card list" style="overflow:hidden">${['order', 'outbid', 'bid', 'chat'].map((k) => `<div class="li" style="cursor:default"><button class="circ" style="background:var(--tint);border:0" data-preview="${k}" aria-label="Play ${SOUNDS[k].label} sound">${ic('play', 14)}</button>
+    <span class="grow"><b>${SOUNDS[k].label}</b><span class="small">${SOUNDS[k].sub}</span></span><input class="sw" type="checkbox" id="sw-${k}" data-snd="${k}" aria-label="${SOUNDS[k].label} sound" ${S.sound[k] ? 'checked' : ''}></div>`).join('')}</div>
+  <span class="cap">Always on, short and quiet</span>
+  <div class="card list" style="overflow:hidden">${['placed', 'undo', 'done', 'ring', 'warn'].map((k) => `<div class="li" style="cursor:default"><button class="circ" style="background:var(--tint);border:0" data-preview="${k}" aria-label="Play ${SOUNDS[k].label} sound">${ic('play', 14)}</button><span class="grow"><b>${SOUNDS[k].label}</b><span class="small">${SOUNDS[k].sub}</span></span></div>`).join('')}</div>
+  <label class="card row" style="padding:14px" for="sw-vibrate"><span style="flex:1;display:flex;flex-direction:column;gap:2px"><b style="font-size:15px">Vibrate</b><span class="small">When a bid is placed, an order arrives, or you are outbid. Android only.</span></span><input class="sw" type="checkbox" id="sw-vibrate" data-snd="vibrate" ${S.sound.vibrate ? 'checked' : ''}></label>
+  <div class="tile" style="flex-direction:row;align-items:center;background:var(--chip);border-color:transparent">${ic('moon', 18)}<span style="flex:1;font-size:13px">Quiet hours mute sounds and WhatsApp too · 10 pm – 8 am</span></div></div>`;
+
+// order chat: messages and calls go through Kainat; phone numbers never show
+const chatHTML = () => S.chats[S.role].map((m) => m.sys
+  ? `<div class="sysmsg ${m.neutral ? 'neutral' : ''}">${ic(m.neutral ? 'call' : 'lock', 14)}<span>${m.text}</span></div>`
+  : `<div class="bub ${m.me ? 'me' : ''}">${m.html || esc(m.text)}<span class="tm">${m.t}</span></div>`).join('');
+V.ochat = () => {
+  const p = partner();
+  return `<div class="chatwrap">${top(p.name, { eyebrow: `Order ${p.order} · ${p.meta}`, right: `<button class="iconbtn plain" data-act="call" aria-label="Call ${p.name} through Kainat" style="color:var(--brand)">${ic('call')}</button>` })}
+  <div class="msgs" id="msgs"><div class="sysmsg neutral">${ic('lock', 14)}<span>Phone numbers stay private on Kainat. Message and call here, so this order keeps its record, help from our team, and token protection.</span></div>${chatHTML()}</div>
+  <form class="composer" id="composer" novalidate>
+    <div class="hint" id="chint" hidden>${ic('warn', 14)}<span>Phone numbers can't be shared in Kainat chats. Use <button type="button" data-act="call" style="border:0;background:none;padding:0;color:inherit;font-weight:700;text-decoration:underline">Call through Kainat</button> instead.</span></div>
+    <div class="cbar"><input id="cmsg" placeholder="Message ${p.short}" autocomplete="off" aria-label="Message ${p.name}" aria-describedby="chint">
+      <button class="btn sm" aria-label="Send" style="width:44px;padding:0;border-radius:22px;flex-shrink:0">${ic('send', 20)}</button></div></form></div>`;
+};
+const contactCard = (p, note) => `<div class="card" style="padding:12px 14px;display:flex;align-items:center;gap:12px">
+  <span style="width:40px;height:40px;border-radius:12px;background:var(--inv);color:var(--oninv);font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${p.initials}</span>
+  <span style="flex:1;display:flex;flex-direction:column;gap:2px;min-width:0"><b>${p.name}</b><span class="small" style="display:flex;gap:4px;align-items:center">${ic('lock', 12)}${note}</span></span>
+  <button class="iconbtn" data-go="ochat" aria-label="Message ${p.name}">${ic('chat', 18)}</button><button class="iconbtn" data-act="call" aria-label="Call ${p.name} through Kainat" style="color:var(--brand)">${ic('call', 18)}</button></div>`;
+
+// supplier
+V.inbox = () => `${offlineBar()}<div class="pad">
+  <div class="hrow"><div><div class="eyebrow">Importer · Hall Road, Lahore</div><div class="h1" style="font-size:22px">Al-Noor Solar Imports</div></div>${bell()}</div>
+  <div class="grid2">
+    <div class="tile" style="background:var(--inv);color:var(--oninv);border-color:transparent;gap:4px"><b style="font-size:30px;line-height:1">${S.inbox.filter((r) => r.status === 'new').length}</b><span style="font-size:13px;opacity:.85">new buyer requests</span><span style="font-size:12px;color:var(--clay);font-weight:600">${S.inbox.filter((r) => r.status === 'new' && r.stock).length} match your stock</span></div>
+    <button class="tile" data-go="dispatch" style="background:var(--amberbg);border-color:transparent;gap:4px"><b style="font-size:30px;line-height:1;color:var(--amber)">${S.orderWaiting ? 1 : 0}</b><span style="font-size:13px;color:var(--amber)">order${S.orderWaiting ? '' : 's'} to confirm</span><span style="font-size:12px;color:var(--amber);font-weight:600">${S.orderWaiting ? 'Green Roof · waiting 2 h' : 'All done'}</span></button>
+    <div class="tile row" style="background:var(--okbg);border-color:transparent;flex-direction:row;color:var(--ok)">${ic('check', 24, 2.2)}<b style="font-size:13px">Prices confirmed today</b></div>
+    <button class="tile" data-go="grid" style="gap:2px"><span class="small">Your rating</span><b style="font-size:20px"><span style="color:var(--clay)">★</span> 4.8</b><span class="small">from 12 buyers</span></button>
+  </div>
+  ${S.orderWaiting ? `<div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px;border-color:var(--amber)"><span class="row" style="justify-content:space-between"><span class="badge amber">New order #8</span><span class="small">2 h ago</span></span>
+    <b style="font-size:16px">Green Roof Solutions · Longi Hi-MO 6 × 40</b><span class="sub">Rs 696,000 · token proof attached · Johar Town</span>
+    <button class="btn2" data-go="ochat" style="height:40px">${ic('chat', 16)} Message Green Roof</button>
+    <div class="grid2"><button class="btn2" data-act="declineOrder">Decline</button><button class="btn sm" data-act="acceptOrder">Accept</button></div></div>` : ''}
+  <span class="cap">New requests</span>
+  ${S.inbox.filter((r) => r.status !== 'passed').map(reqCard).join('')}
+  <span class="small" style="text-align:center">Swipe a request left to pass on it</span></div>`;
+function reqCard(r) {
+  const body = `<span class="row" style="justify-content:space-between">${r.stock ? `<span class="badge tint">${ic('bolt', 13, 2)}You have ${r.stock} in stock</span>` : '<span class="badge">Not in your shop</span>'}<span class="small">${r.ago}</span></span>
+    <b style="font-size:16px">${r.what}</b><span class="sub">${r.who} · ${r.where}</span>
+    ${r.status === 'new' ? (r.stock ? `<div class="grid2" style="grid-template-columns:1.4fr 1fr"><button class="btn sm" data-act="instantBid" data-id="${r.id}">Bid ${rs(r.price)}</button><button class="btn2" data-act="bidLower" data-id="${r.id}">Bid lower</button></div>`
+      : `<button class="btn2" data-act="bidLower" data-id="${r.id}">Send a price</button>`)
+    : r.status === 'queued' ? `<span class="badge">${ic('clock', 13, 2)}Waiting to send · ${rs(r.bid)}</span>`
+      : `<span class="row" style="gap:8px"><span class="badge ok">${ic('check', 13, 2.4)}Your bid ${rs(r.bid)}</span><span class="small">#1 of ${S.bids.length + 1}</span></span>`}`;
+  const card = `<div class="card swipe" ${r.status === 'new' ? `data-swipe="${r.id}"` : ''} style="padding:14px;display:flex;flex-direction:column;gap:10px">${body}</div>`;
+  return r.status === 'new' ? `<div class="swipewrap"><div class="act">${ic('x', 20, 2)}Not in stock</div>${card}</div>` : card;
+}
+
+V.grid = () => `${top('Update prices', { eyebrow: 'My shop · ' + S.grid.length + ' items', back: false })}<div class="pad">
+  <div class="tile" style="background:var(--inv);color:var(--oninv);border-color:transparent;gap:10px"><b style="font-size:14px">Dollar moved? Change everything at once</b>
+    <div class="row" style="gap:8px"><button class="iconbtn" data-act="pct" data-d="-1" aria-label="Decrease" style="background:rgba(127,127,127,.25);border:0;color:var(--oninv);border-radius:12px">−</button>
+    <span id="pctv" style="flex:1;height:44px;border-radius:12px;background:var(--card);color:var(--ink);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700">${S.pct > 0 ? '+' : ''}${S.pct}%</span>
+    <button class="iconbtn" data-act="pct" data-d="1" aria-label="Increase" style="background:rgba(127,127,127,.25);border:0;color:var(--oninv);border-radius:12px">+</button>
+    <button class="btn sm" data-act="applyPct" style="background:var(--clay);color:#141413">Apply</button></div>
+    <span style="font-size:12px;opacity:.8">Fixed-price items are skipped. Nothing is saved until you tap Save all.</span></div>
+  <div class="card" style="overflow:hidden"><table class="cmp"><thead><tr><th>Item</th><th style="width:112px">Price (Rs)</th><th style="width:62px">Stock</th></tr></thead><tbody>
+    ${S.grid.map((g, i) => `<tr><td style="line-height:1.3;padding-left:12px"><b>${g.n}</b><br><span class="small">${g.fixed ? 'fixed price' : 'was ' + fmt(g.base ?? g.p)}</span></td>
+      <td><input aria-label="${g.n} price" class="num" data-gp="${i}" value="${fmt(g.p)}" style="width:100%;box-sizing:border-box;height:38px;border:var(--bw) solid var(--line);border-radius:9px;padding:0 8px;background:var(--card);color:var(--ink);font-weight:600"></td>
+      <td><input aria-label="${g.n} stock" class="num" data-gq="${i}" value="${g.q}" inputmode="numeric" style="width:100%;box-sizing:border-box;height:38px;border:var(--bw) solid var(--line);border-radius:9px;padding:0 8px;background:var(--card);color:var(--ink)"></td></tr>`).join('')}
+  </tbody></table></div>
+  <button class="btn block" data-act="saveGrid">Save all</button></div>`;
+
+V.dispatch = () => `${top('Mark as dispatched', { eyebrow: 'Order #8 · Green Roof Solutions', back: false })}<div class="pad">
+  ${S.orderWaiting ? `<div class="card" style="padding:12px 14px;font-size:13px;color:var(--amber);background:var(--amberbg);border-color:transparent">Accept order #8 first. Tap Accept below to continue.</div>` : ''}
+  ${contactCard(PARTNER.supplier, 'Buyer’s number hidden · message or call through Kainat')}
+  <b>Photo of the loaded goods</b>
+  <div class="grid2" style="grid-template-columns:2fr 1fr">
+    <div role="img" aria-label="${S.dispatchPhoto ? 'Photo added' : 'No photo yet'}" style="height:140px;border-radius:16px;background:var(--chip);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--muted);font-size:12px;position:relative">${ic('truck', 40, 1.4)}${S.dispatchPhoto ? `<b style="color:var(--ink)">${esc(S.dispatchPhoto)}</b><span class="badge ok" style="position:absolute;top:8px;right:8px">Added</span>` : 'No photo yet'}</div>
+    <label for="dphoto" style="height:140px;border-radius:16px;border:1.5px dashed var(--line2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;font-size:12px;font-weight:600;color:var(--ink2);cursor:pointer">${ic('cam', 24)}${S.dispatchPhoto ? 'Change' : 'Take photo'}</label>
+    <input type="file" id="dphoto" accept="image/*" capture="environment" hidden></div>
+  <div class="grid2"><label class="field"><span>Driver's name</span><input id="dname" value="Imran"></label><label class="field"><span>Driver's mobile</span><input id="dmob" type="tel" value="0301 2345678"></label></div>
+  <label class="field"><span>Vehicle number</span><input id="dveh" value="LES 4821"></label>
+  <div class="field"><span>Expected arrival</span><div class="chips">${[['today', 'Today evening'], ['tomorrow', 'Tomorrow'], ['later', 'Later']].map(([k, l]) => `<button class="chip ${S.eta === k ? 'on' : ''}" data-act="eta" data-k="${k}">${l}</button>`).join('')}</div></div>
+  <div class="card" style="padding:12px 14px;font-size:13px;line-height:1.45;background:var(--bluebg);color:var(--blue);border-color:transparent">Green Roof sees the photo, driver's name and arrival time on their order page. The driver's number stays hidden: they call him through Kainat.</div>
+  ${S.orderWaiting ? '<button class="btn block" data-act="acceptOrder">Accept order #8</button>' : '<button class="btn block" data-act="markDispatched">Mark dispatched</button>'}</div>`;
+
+V.scan = () => `<div style="position:absolute;inset:0;background:#1E1E1C;color:#fff">
+  <div class="row" style="position:absolute;top:14px;left:12px;right:12px;justify-content:space-between">
+    <button class="iconbtn" data-back aria-label="Close scanner" style="background:rgba(255,255,255,.14);border:0;color:#fff">${ic('x', 18, 2)}</button><b>Scan to add to shop</b><span style="width:44px"></span></div>
+  <div role="img" aria-label="Camera view of an inverter label" style="position:absolute;top:120px;left:45px;width:300px;height:240px">
+    <div style="position:absolute;inset:30px 26px;border-radius:8px;background:#DAD7CC;color:#2C2C2A;padding:16px;display:flex;flex-direction:column;gap:6px;font-size:12px"><b style="font-size:14px">GROWATT</b><span>Model: SPF 10000 ES</span><span>10 kW · 48 V · Off-grid</span><div style="margin-top:6px;height:30px;background:repeating-linear-gradient(90deg,#2C2C2A 0 2px,transparent 2px 4px,#2C2C2A 4px 5px,transparent 5px 8px)"></div></div>
+    ${S.scanFound ? '' : '<span class="scanline"></span>'}
+    ${['top:0;left:0;border-top:4px solid;border-left:4px solid;border-radius:10px 0 0 0', 'top:0;right:0;border-top:4px solid;border-right:4px solid;border-radius:0 10px 0 0', 'bottom:0;left:0;border-bottom:4px solid;border-left:4px solid;border-radius:0 0 0 10px', 'bottom:0;right:0;border-bottom:4px solid;border-right:4px solid;border-radius:0 0 10px 0'].map((s) => `<span style="position:absolute;width:36px;height:36px;border-color:${S.scanFound ? '#8FD19E' : '#D97757'};${s}"></span>`).join('')}</div>
+  <span style="position:absolute;top:380px;left:0;right:0;text-align:center;font-size:14px;color:#E8E6DC">${S.scanFound ? 'Label read' : 'Point at the label or barcode…'}</span>
+  <section class="sheet ${S.scanFound ? 'on' : ''}" style="max-height:none" aria-label="Match found">
+    <div class="row"><span style="width:44px;height:44px;border-radius:22px;background:var(--okbg);color:var(--ok);display:flex;align-items:center;justify-content:center">${ic('check', 22, 2.2)}</span><span style="display:flex;flex-direction:column;gap:2px"><span class="small">Found in the catalogue</span><b style="font-size:17px">Growatt SPF 10000 ES</b></span></div>
+    <div class="grid2"><label class="field"><span>Your price (Rs)</span><input id="sprice" inputmode="numeric" placeholder="325,000"></label><label class="field"><span>In stock</span><input id="sqty" inputmode="numeric" placeholder="10"></label></div>
+    <span class="small">Others list it from Rs 309,000 to Rs 334,000 in Lahore.</span>
+    <button class="btn" data-act="addScanned">Add to my shop</button><button class="btn2" data-act="rescan" style="border:0">Scan another</button></section></div>`;
+
+// ---------- sheets ----------
+const sheet = $('#sheet'), scrim = $('#scrim');
+let sheetClose = null;
+function openSheet(html, onBind) {
+  sheet.innerHTML = `<div style="position:relative;height:34px;flex-shrink:0;display:flex;justify-content:center"><div class="grab" aria-hidden="true"></div>
+    <button class="iconbtn" data-close aria-label="Close" style="position:absolute;top:0;right:-4px;width:36px;height:36px;background:var(--chip);border:0">${ic('x', 16, 2)}</button></div>${html}`;
+  sheet.scrollTop = 0;
+  sheet.classList.remove('on'); void sheet.offsetWidth; // restart the slide-up
+  scrim.classList.add('on'); sheet.classList.add('on');
+  onBind?.(sheet);
+  dragToClose(sheet);
+  setTimeout(() => sheet.querySelector('button, input')?.focus({ preventScroll: true }), 380);
+}
+function closeSheet() { sheet.classList.remove('on'); scrim.classList.remove('on'); if (sheetClose) { const f = sheetClose; sheetClose = null; f(); } }
+scrim.addEventListener('click', closeSheet);
+function dragToClose(el) {
+  const g = el.querySelector('.grab');
+  let y0 = null, dy = 0;
+  const down = (e) => { y0 = e.clientY; dy = 0; el.style.transition = 'none'; g.setPointerCapture?.(e.pointerId); };
+  const move = (e) => { if (y0 === null) return; dy = Math.max(0, e.clientY - y0); el.style.transform = `translateY(${dy}px)`; };
+  const up = () => { if (y0 === null) return; y0 = null; el.style.transition = ''; el.style.transform = ''; if (dy > 90) closeSheet(); };
+  g.onpointerdown = down; g.onpointermove = move; g.onpointerup = up; g.onpointercancel = up;
+}
+function orderSheet(b) {
+  S.pick = b.id; S.qty = Math.min(S.qty, b.stock) || 1;
+  const sum = () => {
+    $('#o-q').textContent = S.qty; $('#o-total').textContent = rs(b.price * S.qty);
+    $('#o-token').textContent = rs(Math.round((b.price * S.qty * b.token) / 100)); $('#o-line').textContent = `${S.qty} × ${fmt(b.price)}`;
+  };
+  openSheet(`<div class="h2" style="font-size:20px">Confirm order</div>
+    <div class="row" style="padding:12px;border-radius:16px;background:var(--bg)"><span style="width:40px;height:40px;border-radius:12px;background:var(--inv);color:var(--oninv);font-weight:700;display:flex;align-items:center;justify-content:center">${b.name.split(' ').map((w) => w[0]).slice(0, 2).join('')}</span>
+      <span style="display:flex;flex-direction:column;gap:2px"><b>${b.name}</b><span class="sub">${b.rating} · ${b.lead} delivery</span></span></div>
+    <div class="hrow"><span style="display:flex;flex-direction:column;gap:2px"><b>Quantity</b><span class="small">${b.stock} available</span></span>
+      <span class="row" style="gap:4px;border:var(--bw) solid var(--line);border-radius:14px;padding:3px"><button class="iconbtn" data-q="-1" aria-label="Fewer" style="border:0;background:var(--chip);border-radius:11px;font-size:22px">−</button><b id="o-q" class="num" style="width:36px;text-align:center;font-size:18px">${S.qty}</b><button class="iconbtn" data-q="1" aria-label="More" style="border:0;background:var(--chip);border-radius:11px;font-size:22px">+</button></span></div>
+    <div style="display:flex;flex-direction:column;gap:8px;font-size:14px" class="num">
+      <span class="hrow"><span class="sub">Price, locked</span><span id="o-line">${S.qty} × ${fmt(b.price)}</span></span>
+      <span class="hrow" style="font-weight:700;font-size:16px"><span>Total</span><span id="o-total">${rs(b.price * S.qty)}</span></span>
+      <span class="hrow" style="padding:10px 12px;border-radius:12px;background:var(--tint);color:var(--brandT);font-weight:600"><span>Token to pay now (${b.token}%)</span><span id="o-token">${rs(Math.round((b.price * S.qty * b.token) / 100))}</span></span></div>
+    <label class="field"><span>Deliver to</span><select id="o-addr"><option value="site">Site: DHA Phase 6, House 41</option><option value="office">Office: Johar Town, Block K</option></select></label>
+    <label for="o-proof" style="height:56px;border-radius:16px;border:1.5px dashed var(--line2);display:flex;align-items:center;justify-content:center;gap:10px;font-weight:600;color:var(--ink2);cursor:pointer">${ic('cam', 22)}<span id="o-pname">${S.proof ? esc(S.proof) : 'Add token screenshot'}</span></label>
+    <input type="file" id="o-proof" accept="image/*,application/pdf" hidden>
+    <button class="btn" data-act="sendOrder">Send order</button><span class="small" style="text-align:center;margin-top:-6px">${b.name.split(' ')[0]} ${b.name.split(' ')[1] || ''} is told straight away. After ordering you can message and call each other through Kainat; numbers stay private.</span>`, (el) => {
+    el.querySelectorAll('[data-q]').forEach((x) => x.onclick = () => { S.qty = Math.max(1, Math.min(b.stock, S.qty + Number(x.dataset.q))); sum(); });
+    el.querySelector('#o-proof').onchange = (e) => { S.proof = e.target.files[0]?.name || ''; el.querySelector('#o-pname').textContent = S.proof || 'Add token screenshot'; };
+  });
+}
+function shareSheet() {
+  const s = sorted().slice(0, 3);
+  openSheet(`<figure style="margin:0;border-radius:20px;overflow:hidden;border:var(--bw) solid var(--line);background:var(--bg)" aria-label="Image to share">
+      <div class="row" style="background:#AE5630;color:#fff;padding:12px 16px">${logo(22)}<b style="flex:1;font-size:16px">Kainat</b><span style="font-size:12px;opacity:.9">Live bids · today</span></div>
+      <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px"><b style="font-size:18px">Growatt SPF 10000 ES × 4</b><span class="small">Delivered in Lahore · ${S.bids.length} suppliers bid</span>
+      ${s.map((b, i) => `<span class="row" style="gap:10px;font-size:14px"><span class="rank" style="width:22px;height:22px;font-size:12px;${i ? '' : 'background:var(--brand);color:#fff'}">${i + 1}</span><span style="flex:1">${b.name}</span><b class="num">${fmt(b.price)}</b></span>`).join('')}
+      <span class="hrow" style="padding:10px 12px;border-radius:12px;background:var(--tint);color:var(--brandT);font-weight:700;font-size:14px"><span>Best for 4 units</span><span class="num">${rs(s[0].price * 4)}</span></span></div></figure>
+    <div style="display:flex;flex-direction:column;gap:2px"><div class="h2">Share bids as an image</div><span class="small">Supplier phone numbers are never on the image</span></div>
+    <div class="grid3" style="grid-template-columns:repeat(4,minmax(0,1fr))">${[['chat', 'WhatsApp', 'var(--okbg)', 'var(--ok)'], ['chat', 'Business', 'var(--okbg)', 'var(--ok)'], ['dl', 'Save', 'var(--chip)', 'var(--ink)'], ['link', 'Copy link', 'var(--chip)', 'var(--ink)']].map(([i, l, bg, fg]) => `<button data-act="shareTo" data-l="${l}" style="border:0;background:transparent;display:flex;flex-direction:column;align-items:center;gap:6px"><span style="width:56px;height:56px;border-radius:28px;background:${bg};color:${fg};display:flex;align-items:center;justify-content:center">${ic(i, 24)}</span><span style="font-size:12px;font-weight:600">${l}</span></button>`).join('')}</div>`);
+}
+function priceAlertSheet() {
+  const low = 305000;
+  const draw = () => {
+    $('#pa-v').value = fmt(S.alertTarget);
+    const y = 6 + (318000 - S.alertTarget) / 400; // scale 318k..290k across the chart
+    $('#pa-line').setAttribute('y1', y); $('#pa-line').setAttribute('y2', y);
+    $('#pa-lbl').textContent = 'Your target · ' + fmt(S.alertTarget);
+  };
+  openSheet(`<div style="display:flex;flex-direction:column;gap:2px"><div class="h2" style="font-size:20px">Alert me when the price drops</div><span class="small">Pylontech US5000 · any supplier delivering to Lahore</span></div>
+    <div style="background:var(--bg);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:8px">
+      <span class="hrow" style="font-size:13px"><span class="sub">Lowest today</span><b class="num">${rs(low)}</b></span>
+      <svg width="100%" height="76" viewBox="0 0 320 76" fill="none" role="img" aria-label="Lowest price over 30 days, falling from 318,000 to 305,000">
+        <line id="pa-line" x1="0" x2="320" y1="51" y2="51" stroke="var(--brand)" stroke-width="1.5" stroke-dasharray="5 4" style="transition:all .35s ease"/>
+        <polyline points="0,6 40,8 80,7 120,14 160,13 200,22 240,28 280,33 320,38.5" stroke="var(--ink)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="320" cy="38.5" r="4" fill="var(--ink)"/></svg>
+      <span class="hrow small"><span>30 days ago · 318,000</span><b id="pa-lbl" style="color:var(--brandT)"></b></span></div>
+    <label class="field"><span>Target price per unit</span><span class="row" style="height:54px;border-radius:14px;border:2px solid var(--brand);padding:0 14px;gap:8px"><span class="sub" style="font-size:16px">Rs</span><input id="pa-v" inputmode="numeric" style="border:0;outline:none;background:transparent;font-size:20px;font-weight:700;flex:1;min-width:0" class="num"></span></label>
+    <div class="chips">${[2, 5, 8].map((p) => `<button class="chip" data-pct="${p}">−${p}%</button>`).join('')}</div>
+    <label class="row" for="pa-wa" style="font-size:14px"><input type="checkbox" id="pa-wa" checked style="width:20px;height:20px;accent-color:var(--brand);margin:0">Also send on WhatsApp</label>
+    <button class="btn" data-act="setAlert">Set price alert</button>`, (el) => {
+    draw();
+    el.querySelectorAll('[data-pct]').forEach((b) => b.onclick = () => { S.alertTarget = Math.round((low * (1 - b.dataset.pct / 100)) / 500) * 500; draw(); el.querySelectorAll('[data-pct]').forEach((x) => x.classList.toggle('on', x === b)); });
+    el.querySelector('#pa-v').oninput = (e) => { const n = Number(e.target.value.replace(/\D/g, '')); if (n > 250000 && n < 330000) { S.alertTarget = n; const y = 6 + (318000 - n) / 400; $('#pa-line').setAttribute('y1', y); $('#pa-line').setAttribute('y2', y); $('#pa-lbl').textContent = 'Your target · ' + fmt(n); } };
+  });
+}
+function bidLowerSheet(r) {
+  openSheet(`<div class="h2" style="font-size:20px">${r.stock ? 'Bid lower' : 'Send a price'}</div><span class="sub">${r.what} · ${r.who}</span>
+    ${S.role === 'supplier' ? `<div class="card" style="padding:12px 14px;font-size:13px;background:var(--bg)">Lowest bid now <b class="num">${rs(lowest().price)}</b> · open bidding</div>` : ''}
+    <label class="field"><span>Your price per unit (Rs)</span><input id="bl-v" inputmode="numeric" class="num" value="${fmt(r.stock ? Math.min(r.price, lowest().price) - 1000 : 265000)}" style="font-size:20px;font-weight:700;height:54px"></label>
+    <button class="btn" data-act="placeLower" data-id="${r.id}">Place bid</button>`);
+}
+
+// ---------- order chat: sending, the number warning, private calls ----------
+function paintMsgs() {
+  const box = $('#msgs'); if (!box) return;
+  box.innerHTML = box.firstElementChild.outerHTML + chatHTML();
+  const last = box.lastElementChild; last?.animate([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: 260, easing: 'ease-out' });
+  scrollEl.scrollTop = scrollEl.scrollHeight;
+}
+function bindChat() {
+  const input = $('#cmsg'), hint = $('#chint');
+  scrollEl.scrollTop = scrollEl.scrollHeight;
+  const check = () => { const bad = phoneIn(input.value); hint.hidden = !bad; input.classList.toggle('flag', bad); };
+  input.oninput = check; check();
+  $('#composer').onsubmit = (e) => { e.preventDefault(); sendChat(input.value); };
+}
+function sendChat(raw) {
+  const text = raw.trim(); if (!text) return;
+  if (phoneIn(text)) { S.pendingText = text; S.attempts[S.role]++; numberWarning(text); return; }
+  pushMine(text, null);
+}
+function pushMine(text, html) {
+  S.chats[S.role].push({ me: true, text, html, t: nowTime() });
+  const input = $('#cmsg'); if (input) { input.value = ''; input.classList.remove('flag'); $('#chint').hidden = true; }
+  uiTick(); paintMsgs();
+  const role = S.role;
+  later(() => {
+    S.chats[role].push({ me: false, text: PARTNER[role].reply, t: nowTime() });
+    play('chat'); buzz(15);
+    if (S.view === 'ochat' && S.role === role) paintMsgs();
+  }, 1700);
+}
+function numberWarning(text) {
+  const sup = S.role === 'supplier'; const p = partner(); const n = S.attempts[S.role];
+  play('warn'); buzz([40, 60, 40]);
+  openSheet(`<div class="row" style="gap:12px"><span style="width:44px;height:44px;border-radius:22px;background:var(--amberbg);color:var(--amber);display:flex;align-items:center;justify-content:center;flex-shrink:0">${ic('warn', 22)}</span>
+      <div class="h2" style="font-size:19px">Phone numbers stay off Kainat</div></div>
+    <div class="bub me" style="align-self:stretch;max-width:none">${maskPhones(text)}</div>
+    <p style="margin:0;font-size:14px;line-height:1.55;color:var(--ink2)">When a conversation moves outside Kainat, <b style="color:var(--ink)">the risk goes with it</b>. There is no order record, no help from our team if something goes wrong, and no protection for the token money.</p>
+    <p style="margin:0;font-size:14px;line-height:1.55;color:var(--ink2)">${sup
+      ? 'Sharing numbers to take buyers off Kainat <b style="color:var(--ink)">can harm your supplier profile</b>. It is reviewed by the Kainat team and can lower where you appear in buyer searches.'
+      : `Moving deals off Kainat <b style="color:var(--ink)">can also harm ${p.short}'s supplier profile</b>, because off-platform contact is reviewed by the Kainat team.`}</p>
+    ${n >= 2 ? `<div class="sysmsg" style="align-self:stretch;max-width:none;text-align:left">${ic('warn', 14)}<span>${sup ? `This is attempt ${n} on order ${p.order}. The Kainat team has been notified.` : `This is attempt ${n} on this order. Repeated attempts are reviewed by the Kainat team.`}</span></div>` : ''}
+    <button class="btn" data-act="sendMasked">Send without the number</button>
+    <div class="grid2"><button class="btn2" data-act="editMsg">Edit message</button><button class="btn2" data-act="call">${ic('call', 16)} Call through Kainat</button></div>`);
+}
+let callIv = null;
+function startCall() {
+  const p = partner();
+  openSheet(`<div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:6px 0;text-align:center">
+      <span id="cav" style="width:88px;height:88px;border-radius:44px;background:var(--inv);color:var(--oninv);font-size:28px;font-weight:700;display:flex;align-items:center;justify-content:center">${p.initials}</span>
+      <div class="h2">${p.name}</div><span id="callst" class="sub" aria-live="polite">Calling through Kainat…</span>
+      <span class="badge ok">${ic('lock', 12)} Both numbers stay hidden</span></div>
+    <div class="grid3">
+      <button class="btn2" data-act="callMute" aria-pressed="false" style="flex-direction:column;height:64px;gap:2px">${ic('mute', 20)}<span style="font-size:12px">Mute</span></button>
+      <button class="btn2" data-act="callSpk" aria-pressed="false" style="flex-direction:column;height:64px;gap:2px">${ic('sound', 20)}<span style="font-size:12px">Speaker</span></button>
+      <button class="btn" data-act="endCall" style="flex-direction:column;height:64px;gap:2px;background:#B3261E">${ic('call', 20)}<span style="font-size:12px">End</span></button></div>
+    <span class="small" style="text-align:center">Kainat connects the call. Neither side sees the other's number, and the call is noted on order ${p.order}.</span>`);
+  let secs = 0, rings = 0;
+  play('ring');
+  clearInterval(callIv);
+  callIv = setInterval(() => {
+    const st = $('#callst'); if (!st) { clearInterval(callIv); return; }
+    if (rings < 2) { rings++; if (rings < 2) play('ring'); else { st.textContent = 'Connected · 0:00'; uiTick(); $('#cav')?.animate([{ boxShadow: '0 0 0 0 var(--okbg)' }, { boxShadow: '0 0 0 14px transparent' }], { duration: 900, iterations: 2 }); } return; }
+    secs++; st.textContent = `Connected · ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+  }, 1400);
+  sheetClose = () => {
+    const st = $('#callst'); const connected = st && st.textContent.startsWith('Connected'); const len = secs;
+    clearInterval(callIv);
+    S.chats[S.role].push({ sys: true, neutral: true, text: connected ? `Call through Kainat · ${Math.floor(len / 60)}:${String(len % 60).padStart(2, '0')}` : 'Missed call through Kainat' });
+    if (S.view === 'ochat') paintMsgs();
+  };
+}
+function incomingNumber() {
+  const role = S.role; const p = partner();
+  const raw = role === 'buyer' ? 'Call me on 0321-4567890 for faster delivery, or WhatsApp me' : 'My number is 0333 123 4567, send the bill on WhatsApp please';
+  S.chats[role].push({ me: false, text: raw, html: maskPhones(raw), t: nowTime() });
+  S.chats[role].push({ sys: true, text: `Kainat hid a phone number in ${p.short}'s message. Keep talking here so your order stays protected; if anyone pushes you to move off Kainat, flag the order.` });
+  play('chat'); buzz(15);
+  if (S.view === 'ochat') paintMsgs();
+  else banner({ icon: 'chat', title: `${p.short} sent a message`, body: 'A phone number in it was hidden by Kainat', action: 'Open chat', go: 'ochat' });
+}
+
+// ---------- toast and banner ----------
+const toastEl = $('#toast'); let toastT = null;
+function toast(msg, { action = null, onAction = null, ms = 2600 } = {}) {
+  clearTimeout(toastT);
+  toastEl.innerHTML = `<div class="in"><span>${msg}</span>${action ? `<button>${action}</button>` : ''}</div>${action ? `<div class="bar"><i style="animation:none"></i></div>` : ''}`;
+  toastEl.classList.remove('on'); void toastEl.offsetWidth; toastEl.classList.add('on');
+  if (action) {
+    const bar = toastEl.querySelector('.bar i');
+    bar.animate([{ transform: 'scaleX(1)' }, { transform: 'scaleX(0)' }], { duration: ms, easing: 'linear', fill: 'forwards' });
+    toastEl.querySelector('button').onclick = () => { clearTimeout(toastT); toastEl.classList.remove('on'); onAction?.(); };
+  }
+  toastT = setTimeout(() => toastEl.classList.remove('on'), ms);
+}
+const bannerEl = $('#banner'); let bannerT = null;
+function banner({ icon = 'bids', title, body, action = 'View', go = null, onAction = null }) {
+  clearTimeout(bannerT);
+  bannerEl.innerHTML = `<div class="row" style="align-items:flex-start"><span style="width:40px;height:40px;border-radius:12px;background:var(--tint);color:var(--brand);display:flex;align-items:center;justify-content:center;flex-shrink:0">${ic(icon)}</span>
+    <span style="flex:1;display:flex;flex-direction:column;gap:2px"><span class="small">Kainat · now</span><b style="font-size:15px">${title}</b><span style="font-size:13px;color:var(--ink2)">${body}</span></span></div>
+    <div class="grid2"><button class="btn2" data-b="later" style="height:44px">Later</button><button class="btn sm" data-b="go">${action}</button></div><div class="bar"><i></i></div>`;
+  bannerEl.classList.remove('on'); void bannerEl.offsetWidth; bannerEl.classList.add('on');
+  bannerEl.querySelector('.bar i').animate([{ transform: 'scaleX(1)' }, { transform: 'scaleX(0)' }], { duration: 5000, easing: 'linear', fill: 'forwards' });
+  const hide = () => { clearTimeout(bannerT); bannerEl.classList.remove('on'); };
+  bannerEl.querySelector('[data-b=later]').onclick = hide;
+  bannerEl.querySelector('[data-b=go]').onclick = () => { hide(); if (onAction) onAction(); else if (go) navigate(go); };
+  bannerT = setTimeout(hide, 5000);
+  let y0 = null;
+  bannerEl.onpointerdown = (e) => { if (e.target.closest('button')) return; y0 = e.clientY; bannerEl.style.transition = 'none'; };
+  bannerEl.onpointermove = (e) => { if (y0 === null) return; bannerEl.style.transform = `translateY(${Math.min(0, e.clientY - y0)}px)`; };
+  bannerEl.onpointerup = bannerEl.onpointercancel = (e) => { if (y0 === null) return; const d = e.clientY - y0; y0 = null; bannerEl.style.transition = ''; bannerEl.style.transform = ''; if (d < -30) hide(); };
+}
+
+// ---------- navigation ----------
+const NAV = {
+  buyer: [['home', 'Home', 'home'], ['search', 'Search', 'search'], ['bids', 'Bids', 'bids'], ['alerts', 'Alerts', 'bell'], ['profile', 'Profile', 'user']],
+  supplier: [['inbox', 'Requests', 'inbox'], ['grid', 'My shop', 'shop'], ['dispatch', 'Dispatch', 'truck'], ['alerts', 'Alerts', 'bell'], ['profile', 'Profile', 'user']],
+};
+const NAV_UR = { home: 'ہوم', search: 'تلاش', bids: 'بولیاں', alerts: 'اطلاعات', profile: 'پروفائل' };
+const NONAV = ['voice', 'done', 'scan', 'ochat'];
+const TABS = { buyer: ['home', 'search', 'bids', 'alerts', 'profile'], supplier: ['inbox', 'grid', 'dispatch', 'alerts', 'profile'] };
+function paintNav() {
+  const n = S.role === 'buyer' ? S.unread : S.sUnread;
+  const ur = S.lang === 'ur' && S.role === 'buyer';
+  navEl.innerHTML = NAV[S.role].map(([v, l, i]) => `<button class="${S.view === v ? 'on' : ''}" data-tab="${v}" ${S.view === v ? 'aria-current="page"' : ''}>${ic(i, 22)}${v === 'alerts' && n ? `<span class="dot">${n}</span>` : ''}<span style="${ur ? 'font-family:var(--urdu);font-size:12px;line-height:1.4' : ''}">${ur ? NAV_UR[v] : l}</span></button>`).join('');
+}
+function navigate(view, { dir = 'fwd', replace = false, tab = false } = {}) {
+  if (view === S.view && !replace && !tab) return;
+  if (!tab && !replace) S.stack.push(S.view);
+  if (tab) S.stack = [];
+  S.view = view; render(dir === 'back' ? 'enter-back' : tab ? 'enter-fade' : 'enter-fwd');
+}
+function back() { const v = S.stack.pop() || TABS[S.role][0]; S.view = v; render('enter-back'); }
+function render(anim = 'enter-fade') {
+  clearTimers();
+  if (sheet.classList.contains('on')) closeSheet(); // also ends a call in progress
+  app.classList.toggle('nonav', NONAV.includes(S.view));
+  scrollEl.innerHTML = V[S.view]();
+  scrollEl.scrollTop = 0;
+  scrollEl.classList.remove('enter-fwd', 'enter-back', 'enter-fade'); void scrollEl.offsetWidth; scrollEl.classList.add(anim);
+  paintNav(); bindView(); syncPanel();
+}
+
+// ---------- per-screen wiring ----------
+function bindView() {
+  const v = S.view;
+  if (v === 'search') {
+    const q = $('#q'); const res = $('#results');
+    q.oninput = () => { res.innerHTML = catRows(q.value); };
+    $$('[data-q]').forEach((c) => c.onclick = () => { $$('[data-q]').forEach((x) => x.classList.toggle('on', x === c)); q.value = c.dataset.q; res.innerHTML = catRows(q.value); });
+    later(() => q.focus({ preventScroll: true }), 350);
+  }
+  if (v === 'voice') listen();
+  if (v === 'bids' && !S.liveSimDone) { S.liveSimDone = true; later(() => simBid(), 3500); }
+  if (v === 'scan' && !S.scanFound) later(() => { S.scanFound = true; buzz(30); play('placed'); render('enter-fade'); }, 2000);
+  if (v === 'inbox') bindSwipes();
+  if (v === 'sounds') {
+    $$('[data-snd]').forEach((x) => x.onchange = () => { S.sound[x.dataset.snd] = x.checked; if (x.checked && SOUNDS[x.dataset.snd]) play(x.dataset.snd, { preview: true }); if (x.dataset.snd === 'vibrate' && x.checked) buzz(40); });
+    $$('[data-preview]').forEach((x) => x.onclick = () => play(x.dataset.preview, { preview: true }));
+  }
+  if (v === 'dispatch') { const f = $('#dphoto'); if (f) f.onchange = (e) => { S.dispatchPhoto = e.target.files[0]?.name || ''; render('enter-fade'); }; }
+  if (v === 'ochat') bindChat();
+  if (v === 'grid') {
+    $$('[data-gp]').forEach((x) => x.onchange = () => { const g = S.grid[x.dataset.gp]; const n = Number(x.value.replace(/\D/g, '')); if (n) { g.base = g.base ?? g.p; g.p = n; x.value = fmt(n); } });
+    $$('[data-gq]').forEach((x) => x.onchange = () => { S.grid[x.dataset.gq].q = Math.max(0, Number(x.value) || 0); });
+  }
+  if (v === 'home' && S.role === 'buyer' && !S.toured) { S.toured = true; later(() => startTour(), 450); }
+}
+function listen() {
+  const t = $('#vtext'), st = $('#vstate'), bars = $('#vbars'), res = $('#vres');
+  const said = 'Growatt das kilowatt';
+  t.textContent = ''; res.hidden = true; bars.classList.remove('still'); st.textContent = 'Listening · speak in Urdu or English';
+  [...said].forEach((ch, i) => later(() => { t.textContent += ch; }, 600 + i * 55));
+  later(() => { bars.classList.add('still'); st.textContent = 'Got it'; res.hidden = false; play('chat'); res.animate([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: 300, easing: 'ease-out' }); }, 600 + said.length * 55 + 450);
+}
+
+// ---------- live bid simulation with a smooth leaderboard ----------
+const SIM = [
+  { id: 'an', name: 'Al-Noor Solar Imports', rating: '★ 4.8', stock: 18, lead: '1 day', price: 325000, first: 325000, token: 20, badges: ['You: 3 deals', 'Verified'], add: true },
+  { id: 'gv', price: 323500 }, { id: 'sc', price: 322000 }, { id: 'bp', price: 321000 }, { id: 'an', price: 320000 },
+];
+let simI = 0;
+function simBid() {
+  const before = lowest();
+  let step = SIM[simI++ % SIM.length];
+  if (step.add && hasAlNoor()) step = { id: 'an', price: Math.min(...S.bids.map((b) => b.price)) - 1500 };
+  let b;
+  if (step.add) { b = { ...step }; delete b.add; S.bids.push(b); }
+  else { b = S.bids.find((x) => x.id === step.id); const target = Math.min(step.price, lowest().price - 500); b.price = target; }
+  const isNew = !!step.add;
+  S.notes.unshift({ k: 'bids', icon: 'bids', title: `${isNew ? 'New bid from' : 'Lower bid from'} ${b.name.split(' ').slice(0, 2).join(' ')}`, body: `Growatt 10 kW × 4 · ${rs(b.price)}`, time: 'now', go: 'bids', unread: true });
+  S.unread++;
+  play('bid'); buzz([20, 40, 20]);
+  if (S.role === 'buyer' && S.view === 'bids') updateBoard(before);
+  else if (S.role === 'buyer') {
+    banner({ title: `${isNew ? 'New bid' : 'Lower bid'} on Growatt × 4`, body: `${b.name} · <b class="num">${rs(b.price)}</b>${lowest().id === b.id ? ' · now the lowest' : ''}`, action: 'View bids', go: 'bids' });
+    const s = $('#strip-low'); if (s) s.textContent = Math.round(lowest().price / 1000) + 'k';
+    paintNav();
+  } else {
+    banner({ icon: 'bids', title: 'You were outbid', body: `SunPeak's Growatt × 4 · lowest now <b class="num">${rs(lowest().price)}</b>`, action: 'Beat it', go: 'inbox' });
+  }
+}
+function updateBoard(before) {
+  const board = $('#board'); if (!board) return;
+  const first = new Map($$('.brow', board).map((r) => [r.dataset.key, r.getBoundingClientRect().top]));
+  const oldPrices = new Map(S.bids.map((b) => [b.id, Number(board.querySelector(`[data-price="${b.id}"]`)?.textContent.replace(/\D/g, '') || b.price)]));
+  board.innerHTML = boardRows();
+  $$('.brow', board).forEach((r) => {
+    const k = r.dataset.key; const t = r.getBoundingClientRect().top;
+    if (first.has(k)) {
+      const dy = first.get(k) - t;
+      if (dy) r.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: 650, easing: 'cubic-bezier(0.2, 0.9, 0.25, 1.05)' });
+    } else r.animate([{ opacity: 0, transform: 'translateY(-14px) scale(0.98)' }, { opacity: 1, transform: 'none' }], { duration: 500, easing: 'cubic-bezier(0.2, 0.9, 0.25, 1)' });
+    const el = r.querySelector('[data-price]'); const from = oldPrices.get(k); const to = S.bids.find((b) => b.id === k).price;
+    if (from && from !== to) { tick(el, from, to); r.animate([{ backgroundColor: 'var(--okbg)' }, { backgroundColor: getComputedStyle(r).backgroundColor }], { duration: 1200, easing: 'ease-out' }); }
+  });
+  const l = lowest();
+  tick($('#st-low'), before.price, l.price); $('#st-n').textContent = S.bids.length;
+  $('#bb-who').textContent = `${l.name} · ${S.qty} × ${fmt(l.price)}`; $('#bb-total').textContent = rs(l.price * S.qty);
+  paintNav();
+}
+function tick(el, from, to, ms = 700) {
+  if (!el) return; const t0 = performance.now();
+  let done = false;
+  const step = (t) => { if (done) return; const p = Math.min(1, (t - t0) / ms); const e = 1 - Math.pow(1 - p, 3); el.textContent = fmt(Math.round(from + (to - from) * e)); if (p < 1) requestAnimationFrame(step); else done = true; };
+  requestAnimationFrame(step);
+  setTimeout(() => { done = true; el.textContent = fmt(to); }, ms + 60); // always land on the final number
+}
+
+// ---------- supplier swipe to pass ----------
+function bindSwipes() {
+  $$('[data-swipe]').forEach((card) => {
+    let x0 = null, dx = 0, moved = false;
+    card.onpointerdown = (e) => { if (e.target.closest('button')) return; x0 = e.clientX; dx = 0; moved = false; card.style.transition = 'none'; card.setPointerCapture?.(e.pointerId); };
+    card.onpointermove = (e) => { if (x0 === null) return; dx = Math.min(0, e.clientX - x0); if (Math.abs(dx) > 4) moved = true; card.style.transform = `translateX(${dx}px)`; };
+    const up = () => {
+      if (x0 === null) return; x0 = null; card.style.transition = '';
+      if (dx < -90) {
+        card.style.transform = 'translateX(-110%)';
+        const r = S.inbox.find((x) => x.id === card.dataset.swipe);
+        // The state changes now; the collapse is only visual, so a quick Undo can never be overtaken by it.
+        r.status = 'passed';
+        setTimeout(() => {
+          const wrap = card.closest('.swipewrap'); if (!wrap || !wrap.isConnected) return; const h = wrap.offsetHeight;
+          wrap.animate([{ height: h + 'px', opacity: 1 }, { height: '0px', opacity: 0, marginTop: '-14px' }], { duration: 260, easing: 'ease-in', fill: 'forwards' });
+        }, 220);
+        setTimeout(() => { if (r.status === 'passed' && S.view === 'inbox' && document.querySelector(`[data-swipe="${r.id}"]`)) render('enter-fade'); }, 520);
+        play('undo'); buzz(15);
+        toast('Passed on this request', { action: 'Undo', ms: 5000, onAction: () => { r.status = 'new'; play('undo'); render('enter-fade'); } });
+      } else card.style.transform = '';
+    };
+    card.onpointerup = up; card.onpointercancel = up;
+    card.onclick = (e) => { if (moved) e.stopPropagation(); };
+  });
+}
+
+// ---------- tutorial ----------
+const TOUR = [
+  { t: '#t-search', title: 'Search any model', body: 'Type a model or brand, or tap the mic and say it in Urdu or English. Every price you see is live from suppliers.' },
+  { t: '#t-request', title: 'Post a request', body: 'Need a fresh price? Post what you need. Suppliers with it in stock are alerted at once and bid within minutes.' },
+  { t: '#t-live', title: 'Watch bids live', body: 'Bids line up lowest first, with ratings and stock. Tap Accept on the one you want, and pay the token as usual.' },
+  { t: '#t-bell', title: 'We’ll tell you', body: 'New bids, orders and messages show under the bell and on your WhatsApp, with a sound. Nothing is sent between 10 pm and 8 am.' },
+];
+const tourEl = $('#tour');
+function startTour() {
+  if (S.role !== 'buyer' || S.view !== 'home' || S.lang !== 'en') { S.role = 'buyer'; S.lang = 'en'; S.stack = []; S.view = 'home'; render('enter-fade'); }
+  scrollEl.scrollTop = 0;
+  S.tourStep = 0; tourEl.getAnimations().forEach((a) => a.cancel()); tourEl.hidden = false;
+  tourEl.innerHTML = `<div class="spot" id="spot"></div><div class="tcard" id="tcard"></div>`;
+  const spot = $('#spot'); const r = app.getBoundingClientRect(); const s = r.width / app.offsetWidth;
+  spot.style.cssText = `top:${(r.height / s) / 2}px;left:${(r.width / s) / 2}px;width:0;height:0`;
+  paintTour();
+}
+function rel(el) { const a = app.getBoundingClientRect(); const s = a.width / app.offsetWidth; const b = el.getBoundingClientRect(); return { top: (b.top - a.top) / s, left: (b.left - a.left) / s, width: b.width / s, height: b.height / s }; }
+function paintTour() {
+  const spot = $('#spot'), card = $('#tcard'); const i = S.tourStep;
+  if (i === 0) {
+    card.style.top = '170px';
+    card.innerHTML = `<span style="width:56px;height:56px;border-radius:16px;background:#AE5630;display:flex;align-items:center;justify-content:center">${logo(30)}</span>
+      <div class="h1">Welcome to Kainat</div><p style="margin:0;font-size:15px;line-height:1.5;color:var(--ink2)">Get live prices and bids from importers and distributors, without calling around. Here's how it works in 4 quick steps.</p>
+      <span class="row small" style="gap:6px">${ic('clock', 16)}About 30 seconds</span>
+      <button class="btn" data-t="next">Show me</button><button class="btn2" data-t="skip" style="border:0">Skip, I'll explore</button>`;
+  } else if (i <= 4) {
+    const st = TOUR[i - 1]; const box = rel($(st.t)); const pad = 6;
+    spot.style.top = box.top - pad + 'px'; spot.style.left = box.left - pad + 'px'; spot.style.width = box.width + pad * 2 + 'px'; spot.style.height = box.height + pad * 2 + 'px';
+    spot.style.borderRadius = Math.min(28, (box.height + pad * 2) / 2) + 'px';
+    const below = box.top + box.height + 18; const appH = app.offsetHeight;
+    card.style.top = (below + 230 < appH ? below : Math.max(12, box.top - 250)) + 'px';
+    card.innerHTML = `<div class="hrow"><span style="font-size:12px;font-weight:700;color:var(--brandT);letter-spacing:.04em">STEP ${i} OF 4</span><button class="btn2" data-t="skip" style="height:32px;border:0;font-size:13px;color:var(--muted)">Skip</button></div>
+      <div class="tbar"><i style="width:${(i - 1) * 25}%"></i></div><b style="font-size:19px">${st.title}</b><span style="font-size:14px;line-height:1.5;color:var(--ink2)">${st.body}</span>
+      <div class="row" style="gap:8px">${i > 1 ? '<button class="btn2" data-t="back" style="height:48px">Back</button>' : ''}<button class="btn sm" data-t="next" style="flex:1;height:48px">${i === 4 ? 'Finish' : 'Next'}</button></div>`;
+    setTimeout(() => { const bar = card.querySelector('.tbar i'); if (bar) bar.style.width = i * 25 + '%'; }, 30);
+  } else {
+    spot.style.top = '400px'; spot.style.left = '195px'; spot.style.width = '0px'; spot.style.height = '0px';
+    card.style.top = '220px';
+    card.innerHTML = `<span style="align-self:center;width:72px;height:72px;border-radius:36px;background:var(--okbg);color:var(--ok);display:flex;align-items:center;justify-content:center">${ic('check', 36, 2.2)}</span>
+      <div class="h2" style="text-align:center;font-size:22px">You're all set</div><p style="margin:0;font-size:14px;line-height:1.5;color:var(--ink2);text-align:center">Try a practice request with demo suppliers to see bids arrive, or start exploring.</p>
+      <button class="btn" data-t="practice">Try a practice request</button><button class="btn2" data-t="skip">Start using Kainat</button>`;
+    play('done');
+  }
+  card.animate([{ opacity: 0.4, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: 300, easing: 'ease-out' });
+  card.querySelector('.btn')?.focus({ preventScroll: true });
+}
+tourEl.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-t]'); if (!b) return;
+  const a = b.dataset.t;
+  if (a === 'next') { S.tourStep++; uiTick(); paintTour(); }
+  else if (a === 'back') { S.tourStep--; paintTour(); }
+  else { endTour(); if (a === 'practice') { navigate('bids'); later(() => simBid(), 1800); } }
+});
+function endTour() {
+  if (tourEl.hidden) return;
+  S.tourStep = -1;
+  tourEl.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 250, fill: 'forwards' });
+  setTimeout(() => { if (S.tourStep === -1) { tourEl.hidden = true; tourEl.innerHTML = ''; tourEl.getAnimations().forEach((a) => a.cancel()); } }, 260);
+}
+
+// ---------- lock screen push ----------
+const lockEl = $('#lock');
+function showLock() {
+  const now = new Date();
+  lockEl.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;margin-bottom:22px"><span style="font-size:15px;color:#E8E6DC">${now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</span><span style="font-size:72px;font-weight:600;line-height:1;letter-spacing:-.03em">${now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span></div>
+    <div class="note" id="lnote"><div class="row" style="align-items:flex-start;gap:10px"><span style="width:34px;height:34px;border-radius:9px;background:#AE5630;display:flex;align-items:center;justify-content:center;flex-shrink:0">${logo(20)}</span>
+      <span style="flex:1;display:flex;flex-direction:column;gap:2px"><span class="hrow"><b style="font-size:13px">Kainat</b><span style="font-size:12px;color:#66655F">now</span></span><b style="font-size:14px">New order from Green Roof Solutions</b><span style="font-size:13px;color:#3D3D3A">Longi Hi-MO 6 580 W × 40 · Rs 696,000 · token proof attached</span></span></div>
+      <div class="grid2"><button data-l="decline" style="height:44px;border:0;border-radius:12px;background:#E8E6DC;font-weight:600;color:#141413">Decline</button><button data-l="accept" style="height:44px;border:0;border-radius:12px;background:#AE5630;font-weight:600;color:#fff">Accept</button></div></div>
+    <div style="flex:1"></div><span style="font-size:12px;color:#D6D3C7;text-align:center">On the home screen</span>
+    <div style="background:rgba(255,255,255,.12);border-radius:28px;padding:14px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));justify-items:center;gap:8px">
+      <button data-l="open" style="border:0;background:transparent;color:#fff;display:flex;flex-direction:column;align-items:center;gap:6px"><span style="position:relative;width:58px;height:58px;border-radius:16px;background:#AE5630;display:flex;align-items:center;justify-content:center">${logo(32)}<span style="position:absolute;top:-6px;right:-6px;min-width:24px;height:24px;border-radius:12px;background:#E5484D;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid #2A211C">${S.sUnread + 1}</span></span><span style="font-size:12px">Kainat</span></button>
+      ${[1, 2, 3].map(() => '<span style="display:flex;flex-direction:column;align-items:center;gap:6px"><span style="width:58px;height:58px;border-radius:16px;background:#5F5E5A"></span><span style="font-size:12px;color:#D6D3C7">App</span></span>').join('')}</div>`;
+  lockEl.setAttribute('aria-hidden', 'false'); lockEl.classList.add('on');
+  setTimeout(() => { play('order'); buzz([60, 80, 60]); $('#lnote')?.animate([{ transform: 'translateY(-20px) scale(.96)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 450, easing: 'cubic-bezier(0.2, 0.9, 0.25, 1.1)' }); }, 600);
+}
+lockEl.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-l]'); if (!b) return;
+  lockEl.classList.remove('on'); lockEl.setAttribute('aria-hidden', 'true');
+  S.role = 'supplier'; S.lang = 'en'; S.stack = [];
+  if (b.dataset.l === 'accept') { S.orderWaiting = false; play('placed'); buzz(30); S.view = 'dispatch'; render('enter-fade'); toast('Order #8 accepted. Add a dispatch photo when it leaves.'); }
+  else if (b.dataset.l === 'decline') { S.view = 'inbox'; render('enter-fade'); toast('Opened the order to decline it with a reason'); }
+  else { S.view = 'inbox'; render('enter-fade'); }
+});
+
+// ---------- actions ----------
+const ACT = {
+  postRequest: () => { toast('Request posted to 5 suppliers. 2 have it in stock.'); play('placed'); buzz(20); navigate('bids'); later(() => simBid(), 2500); },
+  priceAlert: () => priceAlertSheet(),
+  setAlert: () => { closeSheet(); play('placed'); toast(`Alert set for ${rs(S.alertTarget)}. We'll tell you the moment it drops.`); },
+  share: () => shareSheet(),
+  shareTo: (el) => { closeSheet(); toast(el.dataset.l === 'Copy link' ? 'Link copied' : el.dataset.l === 'Save' ? 'Image saved to your phone (demo)' : `In the app this opens ${el.dataset.l === 'Business' ? 'WhatsApp Business' : 'WhatsApp'} with the image`); },
+  orderFrom: (el) => orderSheet(el.dataset.id ? S.bids.find((b) => b.id === el.dataset.id) : lowest()),
+  orderCompare: (el) => { const c = [{ name: 'New Era Energy', price: 305000, stock: 14, token: 20, rating: 'New', lead: '1 day' }, { name: 'Al-Noor Solar Imports', price: 312000, stock: 22, token: 10, rating: '★ 4.8', lead: '1 day' }, { name: 'Sun City Traders', price: 316000, stock: 6, token: 25, rating: '★ 4.7', lead: 'same day' }][el.dataset.i]; S.qty = 4; orderSheet({ id: 'cmp', ...c }); },
+  askBid: () => { toast('Asked Al-Noor to bid'); play('placed'); later(() => { if (!hasAlNoor()) { simI = 0; simBid(); } }, 2200); },
+  sendOrder: () => {
+    closeSheet();
+    if (S.offline) { toast('Saved. Your order will send when you are back online.'); return; }
+    play('placed'); buzz([20, 30, 20]);
+    S.notes.unshift({ k: 'orders', icon: 'truck', title: 'Order #10 sent', body: 'Waiting for the supplier to accept', time: 'now', go: 'home', unread: false });
+    toast(`Order sent. Price locked${S.proof ? ', proof attached' : ''}.`);
+    S.stack = []; S.view = 'home'; render('enter-back');
+  },
+  delivered: () => { play('done'); buzz([30, 60, 30, 60, 90]); navigate('done'); later(() => $('#donecheck')?.animate([{ transform: 'scale(0.4)', opacity: 0 }, { transform: 'scale(1.08)', opacity: 1, offset: 0.7 }, { transform: 'scale(1)' }], { duration: 650, easing: 'cubic-bezier(0.2, 0.9, 0.25, 1)' }), 30); },
+  star: (el) => { S.stars = Number(el.dataset.n); $$('.stars button').forEach((b, i) => { b.classList.toggle('on', i < S.stars); b.setAttribute('aria-checked', String(i + 1 === S.stars)); }); el.animate([{ transform: 'scale(1.35)' }, { transform: 'scale(1)' }], { duration: 300, easing: 'ease-out' }); uiTick(); },
+  tag: (el) => { const t = el.dataset.t; S.tags = S.tags.includes(t) ? S.tags.filter((x) => x !== t) : [...S.tags, t]; el.classList.toggle('on'); },
+  submitRating: () => { if (!S.stars) { toast('Choose 1 to 5 stars first'); $('.stars')?.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'translateX(0)' }], { duration: 300 }); return; } play('placed'); toast(`Rating saved: ${S.stars} ★. Shown when Al-Noor rates you too.`); S.stack = []; S.view = 'home'; render('enter-back'); },
+  readAll: () => { (S.role === 'buyer' ? S.notes : S.sNotes).forEach((n) => { n.unread = false; }); if (S.role === 'buyer') S.unread = 0; else S.sUnread = 0; render('enter-fade'); },
+  filter: (el) => { S.filter = el.dataset.k; render('enter-fade'); },
+  mode: (el) => setMode(el.dataset.v),
+  lang: (el) => { S.lang = el.dataset.v; if (S.lang === 'ur') { S.role = 'buyer'; S.stack = []; S.view = 'home'; } render('enter-fade'); },
+  tour: () => startTour(),
+  lock: () => showLock(),
+  role: () => setRole(S.role === 'buyer' ? 'supplier' : 'buyer'),
+  instantBid: (el) => placeBid(S.inbox.find((r) => r.id === el.dataset.id), null),
+  bidLower: (el) => bidLowerSheet(S.inbox.find((r) => r.id === el.dataset.id)),
+  placeLower: (el) => { const r = S.inbox.find((x) => x.id === el.dataset.id); const n = Number($('#bl-v').value.replace(/\D/g, '')); if (!n) { toast('Enter a price per unit'); return; } closeSheet(); placeBid(r, n); },
+  acceptOrder: () => { S.orderWaiting = false; play('placed'); buzz(30); toast('Order #8 accepted. Green Roof has been told.'); if (S.view === 'dispatch') render('enter-fade'); else navigate('dispatch'); },
+  declineOrder: () => { openSheet(`<div class="h2" style="font-size:20px">Why are you declining?</div><label class="field"><span>Reason</span><input id="dr" value="Out of stock until Monday"></label><button class="btn" data-act="confirmDecline">Decline order #8</button>`); },
+  confirmDecline: () => { closeSheet(); S.orderWaiting = false; play('undo'); toast('Order #8 declined. Green Roof can choose another supplier.'); render('enter-fade'); },
+  eta: (el) => { S.eta = el.dataset.k; $$('[data-act=eta]').forEach((x) => x.classList.toggle('on', x === el)); },
+  markDispatched: () => { if (!S.dispatchPhoto) { toast('Add a photo of the loaded goods first'); $('label[for=dphoto]')?.animate([{ borderColor: 'var(--brand)' }, { borderColor: 'var(--line2)' }], { duration: 900 }); return; } play('placed'); buzz(30); toast('Marked dispatched. Green Roof sees the photo and driver.'); S.stack = []; S.view = 'inbox'; render('enter-back'); },
+  pct: (el) => { S.pct = Math.max(-10, Math.min(10, S.pct + Number(el.dataset.d))); $('#pctv').textContent = (S.pct > 0 ? '+' : '') + S.pct + '%'; },
+  applyPct: () => {
+    S.grid.forEach((g, i) => { if (g.fixed) return; g.base = g.base ?? g.p; g.p = Math.round((g.base * (1 + S.pct / 100)) / 10) * 10; const inp = $(`[data-gp="${i}"]`); tick(inp && { set textContent(v) { inp.value = v; } }, g.base, g.p, 600); inp?.animate([{ backgroundColor: 'var(--tint)' }, { backgroundColor: 'var(--card)' }], { duration: 1400 }); });
+    uiTick(); toast(`${S.pct > 0 ? '+' : ''}${S.pct}% applied to ${S.grid.filter((g) => !g.fixed).length} items. Tap Save all to keep it.`);
+  },
+  saveGrid: () => { S.grid.forEach((g) => { delete g.base; }); play('placed'); toast('Prices saved. Buyers see them now.'); render('enter-fade'); },
+  addScanned: () => { play('placed'); buzz(20); toast('Added Growatt SPF 10000 ES to your shop'); S.scanFound = false; S.stack = []; S.view = 'grid'; render('enter-back'); },
+  rescan: () => { S.scanFound = false; render('enter-fade'); },
+  listen: () => listen(),
+  call: () => { if (sheet.classList.contains('on')) { sheetClose = null; closeSheet(); setTimeout(startCall, 380); } else startCall(); },
+  endCall: () => { closeSheet(); play('undo'); },
+  callMute: (el) => { const on = el.getAttribute('aria-pressed') !== 'true'; el.setAttribute('aria-pressed', String(on)); el.style.background = on ? 'var(--inv)' : ''; el.style.color = on ? 'var(--oninv)' : ''; },
+  callSpk: (el) => ACT.callMute(el),
+  sendMasked: () => {
+    const html = maskPhones(S.pendingText);
+    closeSheet();
+    if (S.view !== 'ochat') navigate('ochat');
+    pushMine(S.pendingText.replace(PHONE_RUN, '[number hidden]'), html);
+    S.chats[S.role].push({ sys: true, text: 'Kainat removed a phone number from your message.' });
+    paintMsgs();
+  },
+  editMsg: () => { closeSheet(); setTimeout(() => { const i = $('#cmsg'); if (i) { i.value = S.pendingText; i.dispatchEvent(new Event('input')); i.focus(); } }, 380); },
+};
+function placeBid(r, price) {
+  const p = price || r.price;
+  if (S.offline) { r.status = 'queued'; r.bid = p; render('enter-fade'); toast(`Bid ${rs(p)} saved. It will send when you're back online.`); return; }
+  r.status = 'bid'; r.bid = p; play('placed'); buzz(25); render('enter-fade');
+  toast(`Bid placed · ${rs(p)}`, { action: 'Undo', ms: 5000, onAction: () => { r.status = 'new'; delete r.bid; play('undo'); render('enter-fade'); } });
+}
+
+// ---------- event routing inside the phone ----------
+app.addEventListener('click', (e) => {
+  const t = e.target;
+  const tab = t.closest('[data-tab]'); if (tab) { navigate(tab.dataset.tab, { tab: true }); return; }
+  if (t.closest('[data-back]')) { back(); return; }
+  if (t.closest('[data-close]')) { closeSheet(); return; }
+  const note = t.closest('[data-note]');
+  if (note) { const list = S.role === 'buyer' ? S.notes : S.sNotes; const n = list[note.dataset.note]; if (n.unread) { n.unread = false; if (S.role === 'buyer') S.unread = Math.max(0, S.unread - 1); else S.sUnread = Math.max(0, S.sUnread - 1); } navigate(n.go); return; }
+  const go = t.closest('[data-go]'); if (go && !t.closest('[data-act]')) { if (go.dataset.go === 'compare') S.model = go.dataset.model || 'Pylontech US5000'; navigate(go.dataset.go); return; }
+  const act = t.closest('[data-act]'); if (act && ACT[act.dataset.act]) ACT[act.dataset.act](act);
+});
+
+// ---------- panel ----------
+function setRole(r) { endTour(); S.toured = true; S.role = r; S.stack = []; S.view = TABS[r][0]; if (r === 'supplier') S.lang = 'en'; render('enter-fade'); }
+function setMode(m) { S.mode = m; app.dataset.mode = m; if (S.view === 'profile') render('enter-fade'); syncPanel(); }
+function syncPanel() {
+  $$('#p-role button').forEach((b) => b.classList.toggle('on', b.dataset.role === S.role));
+  $$('#p-mode button').forEach((b) => b.classList.toggle('on', b.dataset.mode === S.mode));
+  $('#p-offline').textContent = S.offline ? 'Go back online' : 'Go offline';
+  $('#p-offline').classList.toggle('on', S.offline);
+  $$('[data-jump]').forEach((b) => { const [r, v] = b.dataset.jump.split(':'); b.classList.toggle('on', r === S.role && (v === S.view || (v === 'urdu' && S.lang === 'ur' && S.view === 'home'))); });
+}
+$('#p-sounds').innerHTML = Object.entries(SOUNDS).map(([k, s]) => `<button data-snd-p="${k}">${ic('play', 12)} ${s.label}</button>`).join('');
+$('#panel').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  audio();
+  if (b.dataset.role) setRole(b.dataset.role);
+  if (b.dataset.mode) setMode(b.dataset.mode);
+  if (b.dataset.sndP) play(b.dataset.sndP, { preview: true });
+  if (b.dataset.jump) {
+    const [r, v] = b.dataset.jump.split(':');
+    if (!tourEl.hidden) endTour();
+    if (lockEl.classList.contains('on')) { lockEl.classList.remove('on'); }
+    S.role = r; S.toured = true;
+    if (v === 'urdu') { S.lang = 'ur'; S.stack = []; S.view = 'home'; render('enter-fade'); return; }
+    S.lang = 'en';
+    if (['order', 'share', 'pricealert'].includes(v)) {
+      if (v === 'pricealert') S.model = 'Pylontech US5000';
+      S.stack = []; S.view = v === 'pricealert' ? 'compare' : 'bids'; render('enter-fade');
+      setTimeout(() => (v === 'order' ? orderSheet(lowest()) : v === 'share' ? shareSheet() : priceAlertSheet()), 250);
+      return;
+    }
+    if (v === 'scan') S.scanFound = false;
+    if (v === 'compare') S.model = 'Pylontech US5000';
+    S.stack = TABS[r].includes(v) ? [] : [TABS[r][0]]; S.view = v; render('enter-fade');
+  }
+  const sim = b.dataset.sim;
+  if (sim === 'tour') startTour();
+  if (sim === 'bid') { if (S.role !== 'buyer') { S.role = 'buyer'; S.lang = 'en'; S.stack = []; S.view = 'home'; render('enter-fade'); } simBid(); }
+  if (sim === 'order') {
+    S.orderWaiting = true;
+    if (S.role !== 'supplier') setRole('supplier');
+    S.sNotes.unshift({ k: 'orders', icon: 'truck', title: 'New order from Green Roof', body: 'Longi Hi-MO 6 × 40 · Rs 696,000', time: 'now', go: 'dispatch', unread: true }); S.sUnread++;
+    play('order'); buzz([60, 80, 60]);
+    banner({ icon: 'truck', title: 'New order from Green Roof Solutions', body: 'Longi Hi-MO 6 580 W × 40 · <b class="num">Rs 696,000</b> · proof attached', action: 'Open order', go: 'dispatch' });
+    paintNav(); if (S.view === 'inbox') render('enter-fade');
+  }
+  if (sim === 'outbid') {
+    if (S.role !== 'supplier') setRole('supplier');
+    S.sNotes.unshift({ k: 'bids', icon: 'bids', title: 'You were outbid', body: "SunPeak's Growatt × 4 · lowest Rs 321,500", time: 'now', go: 'inbox', unread: true }); S.sUnread++;
+    play('outbid'); buzz([100, 50, 100]);
+    banner({ icon: 'bids', title: 'You were outbid', body: "SunPeak's Growatt × 4 · lowest now <b class=\"num\">Rs 321,500</b>; yours is Rs 325,000", action: 'Beat it', onAction: () => { navigate('inbox', { tab: true }); setTimeout(() => bidLowerSheet(S.inbox[0]), 350); } });
+    paintNav();
+  }
+  if (sim === 'chat') {
+    play('chat', { preview: true }); buzz(15);
+    banner({ icon: 'chat', title: S.role === 'buyer' ? 'Sun City Traders' : 'SunPeak Energy', body: S.role === 'buyer' ? 'Yes, fresh stock with the WiFi dongle. Same-day delivery if you confirm by 4 pm.' : 'Can you do Rs 322,000 if I take all 4?', action: 'Reply', onAction: () => toast('Chat opens here in the app') });
+  }
+  if (sim === 'lock') showLock();
+  if (sim === 'number') incomingNumber();
+  if (sim === 'tryshare') {
+    if (!tourEl.hidden) endTour(); S.toured = true; S.lang = 'en';
+    if (S.view !== 'ochat') { S.stack = [TABS[S.role][0]]; S.view = 'ochat'; render('enter-fade'); }
+    const i = $('#cmsg'); i.value = S.role === 'buyer' ? 'Sir mera number 0300 1234567 hai, WhatsApp kar dein' : 'Call me directly on 0321 7654321, better rate off the app';
+    i.dispatchEvent(new Event('input')); i.focus();
+  }
+  if (sim === 'offline') {
+    S.offline = !S.offline;
+    if (!S.offline) {
+      const q = S.inbox.filter((r) => r.status === 'queued');
+      q.forEach((r) => { r.status = 'bid'; });
+      play('placed'); toast(q.length ? `Back online. ${q.length} bid${q.length > 1 ? 's' : ''} sent.` : 'Back online');
+    } else { play('undo', { preview: true }); }
+    render('enter-fade');
+  }
+});
+
+// ---------- fit the phone to the window ----------
+function fit() {
+  const wrap = $('#phonewrap'), phone = $('#phone');
+  if (window.innerWidth <= 520) { phone.style.transform = ''; wrap.style.height = ''; return; }
+  const s = Math.min(1, (window.innerHeight - 40) / 864);
+  phone.style.transform = `scale(${s})`; wrap.style.height = 864 * s + 'px'; wrap.style.width = 410 * s + 'px';
+}
+window.addEventListener('resize', fit); fit();
+document.addEventListener('pointerdown', () => audio(), { once: true });
+render('enter-fade');
+})();
+</script>
+
+</body></html>

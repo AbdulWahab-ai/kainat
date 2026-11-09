@@ -1,6 +1,6 @@
 // Buyer side: search, compare, supplier profile, requests, ordering.
 import { route, render, shell, navFor, api, esc, rs, num, ago, day, toast, state, run, $, $$, catLabel, typeLabel, modelName,
-  emptyState, statusBadge, refreshMe, priceText, bizBadges, fileToDataUrl, icons, todayISO, until, plural, poll } from './core.js';
+  emptyState, statusBadge, refreshMe, priceText, bizBadges, fileToDataUrl, icons, todayISO, until, plural, poll, starText } from './core.js';
 
 const CATS = [['', 'All'], ['panel', 'Panels'], ['inverter', 'Inverters'], ['battery', 'Batteries'], ['structure', 'Structures'], ['cable', 'Cables']];
 
@@ -61,13 +61,15 @@ route('/b/model/:id', async ({ params, query, render }) => {
   const mid = (o) => (o.exact ? o.price : (o.low + o.high) / 2);
   if (sort === 'deals') offers.sort((a, b) => b.supplier.deals - a.supplier.deals);
   if (sort === 'fast') offers.sort((a, b) => a.lead_days - b.lead_days || mid(a) - mid(b));
+  // Suppliers without a score yet (fewer than 3 ratings) go after those with one.
+  if (sort === 'rated') offers.sort((a, b) => (b.supplier.rating?.avg ?? -1) - (a.supplier.rating?.avg ?? -1) || mid(a) - mid(b));
   const l = (s) => `#/b/model/${params.id}?city=${encodeURIComponent(query.city || '')}&sort=${s}`;
   render(shell({
     title: modelName(d.model), eyebrow: `${catLabel[d.model.category]} · ${d.model.specs || ''} · ${offers.length} offer${offers.length === 1 ? '' : 's'}${query.city ? ' in ' + query.city : ''}`,
     back: '#/b/search',
     body: `
       <div class="chips"><a class="chip ${sort === 'price' ? 'on' : ''}" href="${l('price')}">Lowest price</a>
-        <a class="chip ${sort === 'deals' ? 'on' : ''}" href="${l('deals')}">Most deals</a><a class="chip ${sort === 'fast' ? 'on' : ''}" href="${l('fast')}">Fastest</a></div>
+        <a class="chip ${sort === 'deals' ? 'on' : ''}" href="${l('deals')}">Most deals</a><a class="chip ${sort === 'rated' ? 'on' : ''}" href="${l('rated')}">Best rated</a><a class="chip ${sort === 'fast' ? 'on' : ''}" href="${l('fast')}">Fastest</a></div>
       ${offers.map((o) => offerCard(o, d.model)).join('') || emptyState('No supplier lists this model right now.')}
       <a class="btn outline block" href="#/b/request/new?model=${d.model.id}">Ask all suppliers for a fresh price</a>`,
   }));
@@ -83,9 +85,16 @@ route('/b/supplier/:id', async ({ params, render }) => {
       <div class="row wrap">${bizBadges(s)}${s.docs_status === 'verified' ? '' : `<span class="badge">${s.docs_status === 'received' ? 'Documents under review' : 'Documents not checked'}</span>`}</div>
       <section class="grid3">
         <div class="metric"><span class="v">${s.deals}</span><span class="small muted">deals on app</span></div>
-        <div class="metric"><span class="v">${s.deals_90d}</span><span class="small muted">last 90 days</span></div>
+        <div class="metric"><span class="v">${s.rating?.avg !== null && s.rating?.avg !== undefined ? '★ ' + s.rating.avg.toFixed(1) : '–'}</span><span class="small muted">${s.rating?.count ? plural(s.rating.count, 'rating') : 'no ratings yet'}</span></div>
         <div class="metric" style="${s.with_you ? 'background:var(--brand-tint)' : ''}"><span class="v">${s.with_you || 0}</span><span class="small muted">with you</span></div>
       </section>
+      ${s.my_last_rating ? `<span class="small muted">You rated them ${s.my_last_rating} ★ last time.</span>` : ''}
+      ${d.reviews.length ? `<section class="card"><span class="label-caps">Ratings from buyers${s.rating?.top_tags?.length ? ' · ' + s.rating.top_tags.map((t) => esc(t.tag)).join(', ') : ''}</span>
+        ${d.reviews.map((x) => `<div class="review"><span class="small"><span class="star-text" aria-label="${x.stars} of 5 stars">${starText(x.stars)}</span> · ${esc(x.rater_name)} · ${new Date(x.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
+          ${x.tags.length ? `<span class="row wrap" style="gap:4px">${x.tags.map((t) => `<span class="badge">${esc(t)}</span>`).join('')}</span>` : ''}
+          ${x.comment ? `<span class="small">“${esc(x.comment)}”</span>` : ''}
+          ${x.reply ? `<div class="reply small"><span class="strong">${esc(s.name)} replied:</span> ${esc(x.reply)}</div>` : ''}</div>`).join('')}
+        <span class="tiny muted">Only buyers with a delivered order can rate. The score uses each buyer’s latest rating from the last 12 months and shows from 3 ratings.</span></section>` : ''}
       <section class="card"><span class="label-caps">About</span>
         <span class="small">${esc(typeLabel[s.supplier_type] || '')} · ${s.years ? s.years + ' years in business · ' : ''}member since ${new Date(s.created_at).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}</span>
         <span class="small">Delivers to ${esc(s.delivery_cities || s.city)}</span>
@@ -173,7 +182,7 @@ route('/b/request/new', async ({ query, render }) => {
     if (!listing && !body.model_id && $('#free').classList.contains('hidden')) { toast('Pick a model from the list, or choose “Any model”', 'error'); return; }
     run(e.submitter, async () => {
       const r = await api('POST', '/api/requests', body);
-      toast(r.sent_to ? `Sent to ${r.sent_to} supplier${r.sent_to > 1 ? 's' : ''}${r.in_stock ? `. ${r.in_stock} ha${r.in_stock > 1 ? 've' : 's'} it in stock now.` : ''}` : 'Posted. No matching supplier yet; our team will find one.');
+      toast(r.sent_to ? `Sent to ${r.sent_to} supplier${r.sent_to > 1 ? 's' : ''}${r.in_stock ? `. ${r.in_stock} ha${r.in_stock > 1 ? 've' : 's'} it in stock now` : ''}${r.later ? `. ${r.later} more get it in 30 minutes if bids are slow.` : '.'}` : 'Posted. No matching supplier yet; our team will find one.');
       location.hash = `#/b/request/${r.id}`;
     });
   };
@@ -220,6 +229,10 @@ route('/b/request/:id', async ({ params, render }) => {
           <a class="small strong" href="#/chat/new?with=${o.supplier.id}&request=${r.id}">${icons.msg} Ask them to bid</a></article>`).join('')}` : ''}
       <details class="card"><summary class="strong">Who received this request</summary>
         ${d.targets.map((t) => `<div class="row between small"><span>${esc(t.name)}</span>${statusBadge(t.status)}</div>`).join('') || '<span class="small muted">No supplier matched yet.</span>'}</details>
+      ${r.status === 'open' && !d.quotes.length && r.wave >= 3 ? `<section class="card warn"><span class="strong">No bids yet</span>
+        <span class="small">Send it to suppliers in other cities who sell this and deliver to ${esc(r.city)}.</span>
+        <button type="button" id="widen" class="btn primary">Widen to other cities</button></section>` : ''}
+      ${r.status === 'open' && r.wave === 1 && r.next_wave_at && Date.parse(r.next_wave_at) > Date.now() ? `<span class="tiny muted">More matching suppliers get this ${until(r.next_wave_at).replace('closes ', '')} if fewer than 2 bids arrive.</span>` : ''}
       ${r.status === 'open' ? `<details class="card"><summary class="strong">Invite my own supplier</summary>
         <p class="small muted">They get this request on WhatsApp and can quote without installing the app.</p>
         <form id="inv" class="stack" style="gap:10px"><label class="field"><span class="flabel">Business name</span><input name="name" required></label>
@@ -238,6 +251,11 @@ route('/b/request/:id', async ({ params, render }) => {
       }
     }, 4000);
   }
+  $('#widen')?.addEventListener('click', (e) => run(e.target, async () => {
+    const x = await api('POST', `/api/requests/${r.id}/widen`);
+    toast(x.sent_to ? `Sent to ${plural(x.sent_to, 'more supplier')}` : 'No other supplier sells this yet. The Kainat team will look for one.');
+    location.hash = `#/b/request/${r.id}?t=${Date.now()}`;
+  }));
   $('#cancel')?.addEventListener('click', (e) => run(e.target, async () => {
     await api('POST', `/api/requests/${r.id}/cancel`);
     toast('Request cancelled');
@@ -274,7 +292,7 @@ route('/b/order/new', async ({ query, render }) => {
     title: 'Confirm order', eyebrow: `from ${s.name}`, back: 'javascript:history.back()',
     body: `
       <section class="card"><div class="row between top"><span class="stack" style="gap:2px"><span class="strong">${esc(modelName(item.model))}</span>
-        <span class="small muted">${rs(item.price)} per ${esc(item.model?.unit || 'unit')} · ${num(item.qty_max)} available · ${item.lead_days ? item.lead_days + ' day(s)' : 'same day'}</span></span>${bizBadges(s)}</div>
+        <span class="small muted">${rs(item.price)} per ${esc(item.model?.unit || 'unit')} · ${num(item.qty_max)} available · ${item.lead_days ? item.lead_days + ' day(s)' : 'same day'}</span></span><span class="row wrap" style="justify-content:flex-end;gap:4px;min-width:0">${bizBadges(s)}</span></div>
         ${s.deals === 0 ? '<div class="card warn small">This supplier has no completed deals on the app yet. Check their documents and stock before paying token money.</div>' : ''}</section>
       <form id="f" class="stack" style="gap:14px">
         <label class="field"><span class="flabel">Quantity${item.min > 1 ? ` (minimum ${item.min})` : ''}</span><input name="qty" type="number" min="${item.min}" max="${item.qty_max}" value="${item.default_qty}" required></label>

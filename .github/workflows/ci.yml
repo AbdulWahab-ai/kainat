@@ -1,0 +1,36 @@
+# Runs every test (unit, API integration, smoke and browser end-to-end) on each pull request and on main.
+# "main" only accepts pull requests that pass this check.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      - name: Install Chromium for the browser tests
+        run: npx playwright-core install --with-deps chromium
+
+      - name: Run all tests
+        run: npm test

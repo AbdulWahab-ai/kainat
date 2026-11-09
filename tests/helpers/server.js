@@ -15,10 +15,12 @@ export const PHONES = {
   abbas: '03005555555', newEra: '03006666666', sunPeak: '03211111111', greenRoof: '03212222222', brightWorks: '03213333333',
 };
 
-export async function startServer() {
+// Quiet hours are off by default so tests behave the same at any time of day; notification tests turn them on.
+// TEST_HOOKS adds /api/test/clock and /api/test/tick and stops the background job timer.
+export async function startServer(env = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kainat-test-'));
   const proc = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server.js'], {
-    cwd: ROOT, env: { ...process.env, PORT: '0', DATA_DIR: dataDir }, stdio: ['ignore', 'pipe', 'pipe'],
+    cwd: ROOT, env: { ...process.env, PORT: '0', DATA_DIR: dataDir, TEST_HOOKS: '1', DEFAULT_QUIET: 'off', ...env }, stdio: ['ignore', 'pipe', 'pipe'],
   });
   let stderr = '';
   proc.stderr.on('data', (d) => { stderr += d; });
@@ -36,6 +38,10 @@ export async function startServer() {
     get stderr() { return stderr; },
     // Direct database access for setting up edge cases (expired codes, old requests).
     db() { return new DatabaseSync(path.join(dataDir, 'app.db')); },
+    // Move the server clock forward, or run scheduled jobs now.
+    async advance(minutes) { return (await fetch(`${base}/api/test/clock`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ advance_minutes: minutes }) })).json(); },
+    async setClock(iso) { return (await fetch(`${base}/api/test/clock`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ set: iso }) })).json(); },
+    async tick(jobs) { return (await fetch(`${base}/api/test/tick`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jobs }) })).json(); },
     async stop() {
       // Windows keeps the database file locked until the process has really gone, so wait for the exit.
       if (proc.exitCode === null) {

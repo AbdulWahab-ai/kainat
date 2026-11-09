@@ -13,7 +13,7 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server.js'], {
-  cwd: ROOT, env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA }, stdio: ['ignore', 'pipe', 'pipe'],
+  cwd: ROOT, env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, TEST_HOOKS: '1', DEFAULT_QUIET: 'off' }, stdio: ['ignore', 'pipe', 'pipe'],
 });
 server.stderr.on('data', (d) => process.stderr.write(d));
 
@@ -186,7 +186,7 @@ try {
   await buyer.call('POST', `/api/chats/${reqChat.id}/messages`, { body: 'Can you deliver to DHA Phase 6 by Friday? Site photo attached.', attachment: PNG, attachment_name: 'site.png' });
   const anMe = await alNoor.call('GET', '/api/me');
   ok(anMe.counts.unread_chats >= 1, 'supplier sees an unread chat');
-  ok((await alNoor.call('GET', '/api/whatsapp')).at(-1).buttons?.includes('Open chat'), 'supplier gets one WhatsApp nudge with "Open chat"');
+  ok((await alNoor.call('GET', '/api/notifications')).items.filter((n) => n.event === 'chat_message' && n.link === `#/chat/${reqChat.id}`).length === 1, 'supplier gets one chat nudge (WhatsApp now or in the next 15-minute batch)');
   const anThread = await alNoor.call('GET', `/api/chats/${reqChat.id}`);
   const fileMsg = anThread.messages.find((m) => m.has_file);
   const fileRes = await fetch(`${BASE}/api/chats/${reqChat.id}/files/${fileMsg.id}`, { headers: { cookie: alNoor.cookie } });

@@ -3,6 +3,9 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { all, get, run, now, tx, UPLOAD_DIR } from './db.js';
+import { nowMs, setClock, MIN, HOUR, DAY, pktHour, pktDate } from './clock.js';
+import * as N from './notify.js';
+import * as R from './ratings.js';
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -42,19 +45,22 @@ const deliveredCount = (bizId) =>
   get(`SELECT COUNT(*) n FROM orders WHERE (buyer_id = ? OR supplier_id = ?) AND status = 'delivered'`, bizId, bizId).n;
 const recentCount = (bizId) =>
   get(`SELECT COUNT(*) n FROM orders WHERE (buyer_id = ? OR supplier_id = ?) AND status = 'delivered' AND delivered_at > ?`,
-    bizId, bizId, new Date(Date.now() - 90 * 864e5).toISOString()).n;
+    bizId, bizId, new Date(nowMs() - 90 * 864e5).toISOString()).n;
 const band = (price) => [Math.floor((price * 0.96) / 1000) * 1000, Math.ceil((price * 1.04) / 1000) * 1000];
-const staleDays = (iso) => Math.floor((Date.now() - Date.parse(iso)) / 864e5);
+const staleDays = (iso) => Math.floor((nowMs() - Date.parse(iso)) / 864e5);
 const cityMatch = (s, city) => {
   if (!city) return true;
   const c = city.trim().toLowerCase();
   return (s.city || '').toLowerCase() === c || (s.delivery_cities || '').toLowerCase().split(',').map((x) => x.trim()).includes(c);
 };
 
-function wa(businessId, body, buttons = null, context = null) {
+// A direct WhatsApp reply from the Kainat bot to a message the business just sent (inside the conversation,
+// so not a notification). Alerts go through notify() instead.
+function waSend(businessId, body, buttons = null, context = null) {
   run('INSERT INTO wa_messages (business_id, direction, body, buttons, context, at) VALUES (?,?,?,?,?,?)',
     businessId, 'out', body, buttons ? JSON.stringify(buttons) : null, context ? JSON.stringify(context) : null, now());
 }
+const notify = N.notify;
 
 // ---------- uploads ----------
 function saveUpload(prefix, dataUrl) {
@@ -106,7 +112,8 @@ function postChat(conv, sender, kind, body, attachment = null, attachmentName = 
     const other = sender.id === conv.buyer_id ? conv.supplier_id : conv.buyer_id;
     // One WhatsApp nudge per batch of unread messages, so a busy chat does not flood WhatsApp.
     if (kind === 'text' && unreadFor(conv.id, other) === 1) {
-      wa(other, `New message from ${sender.name} on Kainat: ${body ? body.slice(0, 140) : 'sent an attachment'}`, ['Open chat'], { type: 'chat', conversation_id: conv.id });
+      notify(other, 'chat_message', { body: `New message from ${sender.name} on Kainat: ${body ? body.slice(0, 140) : 'sent an attachment'}`,
+        buttons: ['Open chat'], context: { type: 'chat', conversation_id: conv.id } });
     }
   }
   return id;
@@ -156,6 +163,10 @@ function publicBiz(b, viewer) {
     get(`SELECT COUNT(*) n FROM orders WHERE ((buyer_id = ? AND supplier_id = ?) OR (buyer_id = ? AND supplier_id = ?)) AND status <> 'cancelled'`,
       viewer.id, b.id, b.id, viewer.id).n > 0);
   if (canContact) Object.assign(out, { phone: b.phone, whatsapp: b.whatsapp, address: b.address, ntn: b.ntn });
+  if (b.role === 'buyer' || b.role === 'supplier') {
+    out.rating = R.summary(b.id);
+    if (viewer?.id && viewer.id !== b.id) out.my_last_rating = R.lastGiven(viewer.id, b.id);
+  }
   return out;
 }
 
@@ -167,8 +178,91 @@ function priceView(listing, viewer) {
   return { exact: false, low: lo, high: hi };
 }
 
+const requestWhat = (r) => {
+  const m = r.model_id ? get('SELECT * FROM models WHERE id = ?', r.model_id) : null;
+  return `${m ? modelName(m) : r.description || r.category} × ${r.qty}`;
+};
+
+// Close requests past their 48 hours and tell the buyer. Called before reading requests, and by the scheduler.
 function expireRequests() {
-  run("UPDATE requests SET status = 'expired' WHERE status = 'open' AND expires_at < ?", now());
+  const due = all("SELECT * FROM requests WHERE status = 'open' AND expires_at < ?", now());
+  for (const r of due) {
+    run("UPDATE requests SET status = 'expired', next_wave_at = NULL WHERE id = ? AND status = 'open'", r.id);
+    const bids = get("SELECT COUNT(*) n FROM quotes WHERE request_id = ? AND status = 'active'", r.id).n;
+    notify(r.buyer_id, 'request_expired', {
+      body: bids
+        ? `Your request for ${requestWhat(r)} closed after 48 hours with ${bids} bid${bids === 1 ? '' : 's'} and no order. Post it again if you still need it.`
+        : `Your request for ${requestWhat(r)} closed after 48 hours with no bids. Post it again, or invite a supplier you know.`,
+      buttons: ['Open request'], context: { type: 'request', request_id: r.id }, dedupe: `expired-${r.id}`,
+    });
+  }
+}
+
+// ---------- matching waves ----------
+// Wave 1 goes out at once: suppliers with the exact model in stock, plus the WAVE1_SIZE best of the rest.
+// After 30 minutes with fewer than 2 bids, wave 2 sends it to everyone else who matches. After 2 hours with
+// no bids at all, the buyer is told and can widen it to other cities.
+export const WAVE1_SIZE = 5;
+export const WAVE2_AFTER = 30 * MIN;
+export const NO_BIDS_AFTER = 2 * HOUR;
+
+// Higher is better. Exact stock first, then past deals with this buyer, how often the supplier answers
+// requests, fresh prices, and their rating.
+function supplierScore(s, buyerId, inStock) {
+  let score = inStock ? 100 : 0;
+  score += Math.min(30, isPartner(buyerId, s.id) * 10);
+  const since = new Date(nowMs() - 90 * DAY).toISOString();
+  const sent = get('SELECT COUNT(*) n FROM request_targets WHERE supplier_id = ? AND sent_at > ?', s.id, since).n;
+  const answered = get("SELECT COUNT(*) n FROM request_targets WHERE supplier_id = ? AND sent_at > ? AND status = 'quoted'", s.id, since).n;
+  score += 30 * (sent ? answered / sent : 0.5);
+  if (get('SELECT 1 x FROM listings WHERE supplier_id = ? AND visible = 1 AND confirmed_at > ?', s.id, new Date(nowMs() - 2 * DAY).toISOString())) score += 10;
+  const rating = R.summary(s.id).avg;
+  if (rating !== null) score += (rating - 3) * 5;
+  return score;
+}
+
+function rankForRequest(r, sups) {
+  return sups.map((s) => {
+    const inStock = !!stockMatch(r, s.id);
+    return { s, inStock, score: supplierScore(s, r.buyer_id, inStock) };
+  }).sort((a, b) => b.score - a.score || a.s.id - b.s.id);
+}
+
+function runWaves() {
+  const due = all("SELECT * FROM requests WHERE status = 'open' AND next_wave_at IS NOT NULL AND next_wave_at <= ?", now());
+  let sent = 0;
+  for (const r of due) {
+    const bids = get("SELECT COUNT(*) n FROM quotes WHERE request_id = ? AND status = 'active'", r.id).n;
+    const buyer = get('SELECT * FROM businesses WHERE id = ?', r.buyer_id);
+    if (r.wave === 1) {
+      if (bids < 2) {
+        const model = r.model_id ? get('SELECT * FROM models WHERE id = ?', r.model_id) : null;
+        const rest = matchSuppliers({ model, category: r.category, city: r.city, scope: 'all', buyerId: r.buyer_id });
+        for (const { s } of rankForRequest(r, rest)) if (targetSupplier(r, buyer, s.id, 2)) sent++;
+        run('UPDATE requests SET wave = 2, next_wave_at = ? WHERE id = ?', new Date(Date.parse(r.created_at) + NO_BIDS_AFTER).toISOString(), r.id);
+      } else run('UPDATE requests SET next_wave_at = NULL WHERE id = ?', r.id);
+    } else if (r.wave === 2) {
+      if (bids === 0) {
+        notify(r.buyer_id, 'request_no_bids', {
+          body: `No bids yet on your request for ${requestWhat(r)} after 2 hours. Widen it to suppliers in other cities who deliver to ${r.city}, or invite a supplier you know.`,
+          buttons: ['Widen search', 'Open request'], context: { type: 'request', request_id: r.id }, dedupe: `nobids-${r.id}`,
+        });
+        run('UPDATE requests SET wave = 3, next_wave_at = NULL WHERE id = ?', r.id);
+      } else run('UPDATE requests SET next_wave_at = NULL WHERE id = ?', r.id);
+    } else run('UPDATE requests SET next_wave_at = NULL WHERE id = ?', r.id);
+  }
+  return sent;
+}
+
+// Send a request to every supplier who sells the category, in any city.
+function widenRequest(r, buyer) {
+  if (r.status !== 'open') fail(409, 'Only open requests can be widened');
+  const model = r.model_id ? get('SELECT * FROM models WHERE id = ?', r.model_id) : null;
+  const sups = matchSuppliers({ model, category: r.category, city: null, scope: 'all', buyerId: r.buyer_id });
+  let n = 0;
+  for (const { s } of rankForRequest(r, sups)) if (targetSupplier(r, buyer, s.id, 3)) n++;
+  run("UPDATE requests SET scope = 'all', wave = 3, next_wave_at = NULL WHERE id = ?", r.id);
+  return n;
 }
 
 function matchSuppliers({ model, category, city, scope, buyerId }) {
@@ -204,19 +298,21 @@ function stockMatch(r, supplierId) {
   return l || null;
 }
 
-function targetSupplier(r, buyer, supplierId) {
+function targetSupplier(r, buyer, supplierId, wave = 1) {
   const exists = get('SELECT 1 x FROM request_targets WHERE request_id = ? AND supplier_id = ?', r.id, supplierId);
   if (exists) return false;
   const l = stockMatch(r, supplierId);
-  run('INSERT INTO request_targets (request_id, supplier_id, status, sent_at, in_stock, stock_qty, stock_price) VALUES (?,?,?,?,?,?,?)',
-    r.id, supplierId, 'sent', now(), l ? 1 : 0, l?.qty ?? null, l?.price ?? null);
+  run('INSERT INTO request_targets (request_id, supplier_id, status, sent_at, in_stock, stock_qty, stock_price, wave) VALUES (?,?,?,?,?,?,?,?)',
+    r.id, supplierId, 'sent', now(), l ? 1 : 0, l?.qty ?? null, l?.price ?? null, wave);
   if (l) {
     const m = get('SELECT * FROM models WHERE id = ?', r.model_id);
     const partner = isPartner(buyer.id, supplierId);
-    wa(supplierId, `In-stock match. ${buyer.name} (${partner ? `traded with you ${partner}×` : dealsText(deliveredCount(buyer.id))}) needs ${modelName(m)} × ${r.qty} in ${r.city}, by ${dayLabel(r.needed_by)}.\nYou have ${l.qty} in your shop at ${rs(l.price)}.\n\nBid now at your shop price, or reply with a lower price.`,
-      [`Bid ${rs(l.price)}`, 'Bid lower', 'Not in stock'], { type: 'request', request_id: r.id, match: true });
+    notify(supplierId, 'request_match', {
+      body: `In-stock match. ${buyer.name} (${partner ? `traded with you ${partner}×` : dealsText(deliveredCount(buyer.id))}) needs ${modelName(m)} × ${r.qty} in ${r.city}, by ${dayLabel(r.needed_by)}.\nYou have ${l.qty} in your shop at ${rs(l.price)}.\n\nBid now at your shop price, or reply with a lower price.`,
+      buttons: [`Bid ${rs(l.price)}`, 'Bid lower', 'Not in stock'], context: { type: 'request', request_id: r.id, match: true } });
   } else {
-    wa(supplierId, requestText(r, buyer, supplierId), ['Send price', 'Not in stock'], { type: 'request', request_id: r.id });
+    notify(supplierId, 'request_match', { body: requestText(r, buyer, supplierId), buttons: ['Send price', 'Not in stock'],
+      context: { type: 'request', request_id: r.id } });
   }
   return true;
 }
@@ -302,13 +398,17 @@ function saveQuote(me, r, b) {
   // The bid also lands in the buyer and supplier's chat for this request, so the negotiation stays in one place.
   const conv = convFor(r.buyer_id, me.id, r.id);
   postChat(conv, me, 'bid', `${revised ? 'Revised bid' : 'Bid'}: ${rs(price)} per ${m?.unit || 'unit'} for ${what}. ${qty} available, ${token_pct}% token, ${leadText(lead_days)}.`);
-  wa(r.buyer_id, `${revised ? 'Revised bid' : 'New bid'} from ${me.name} on your request (${what} × ${r.qty}): ${rs(price)} per ${m?.unit || 'unit'}, ${qty} available, ${token_pct}% token, ${leadText(lead_days)}.`,
-    ['See bids'], { type: 'quotes', request_id: r.id });
+  // The first bid on a request is what the buyer is waiting for, so it goes out at once; later bids may be batched.
+  const firstBid = !existing && !get('SELECT 1 x FROM quotes WHERE request_id = ? AND id <> ?', r.id, id);
+  notify(r.buyer_id, revised ? 'bid_revised' : firstBid ? 'bid_first' : 'bid_new', {
+    body: `${revised ? 'Revised bid' : 'New bid'} from ${me.name} on your request (${what} × ${r.qty}): ${rs(price)} per ${m?.unit || 'unit'}, ${qty} available, ${token_pct}% token, ${leadText(lead_days)}.`,
+    buttons: ['See bids'], context: { type: 'quotes', request_id: r.id } });
   // Open bidding: tell the supplier who just lost the lowest spot.
   if (r.bidding === 'open' && prevLowest?.p && price < prevLowest.p) {
     const buyer = get('SELECT name FROM businesses WHERE id = ?', r.buyer_id);
-    wa(prevLowest.s, `You have been outbid on ${buyer.name}'s request for ${what} × ${r.qty}. The lowest bid is now ${rs(price)}; yours is ${rs(prevLowest.p)}.`,
-      ['Lower my bid', 'Open request'], { type: 'request', request_id: r.id });
+    notify(prevLowest.s, 'outbid', {
+      body: `You have been outbid on ${buyer.name}'s request for ${what} × ${r.qty}. The lowest bid is now ${rs(price)}; yours is ${rs(prevLowest.p)}.`,
+      buttons: ['Lower my bid', 'Open request'], context: { type: 'request', request_id: r.id } });
   }
   return q;
 }
@@ -322,7 +422,32 @@ function orderView(o, viewer) {
     total: o.price * o.qty, token_amount: Math.round((o.price * o.qty * o.token_pct) / 100),
     buyer: publicBiz(buyer, viewer), supplier: publicBiz(supplier, viewer),
     messages: all(`SELECT m.*, b.name sender_name FROM messages m LEFT JOIN businesses b ON b.id = m.sender_id WHERE order_id = ? ORDER BY id`, o.id),
+    rating: R.forOrder(o, viewer),
   };
+}
+
+// Mark an order delivered (by the buyer, or automatically 7 days after dispatch) and ask both sides to rate.
+function markDelivered(o, { auto = false } = {}) {
+  const t = now();
+  run("UPDATE orders SET status = 'delivered', delivered_at = ?, dispatched_at = COALESCE(dispatched_at, ?), auto_delivered = ? WHERE id = ?",
+    t, t, auto ? 1 : 0, o.id);
+  const buyer = get('SELECT * FROM businesses WHERE id = ?', o.buyer_id);
+  const supplier = get('SELECT * FROM businesses WHERE id = ?', o.supplier_id);
+  if (auto) {
+    for (const id of [o.buyer_id, o.supplier_id]) {
+      notify(id, 'order_update', { body: `Order #${o.id} was marked delivered automatically, 7 days after dispatch. If it did not arrive, flag a problem on the order page.`,
+        buttons: ['Open order'], context: { type: 'order', order_id: o.id } });
+    }
+  } else {
+    notify(o.supplier_id, 'order_update', { body: `${buyer.name} confirmed delivery of order #${o.id}. It now counts in your trade history.`,
+      buttons: ['Open order'], context: { type: 'order', order_id: o.id } });
+  }
+  for (const [who, other] of [[buyer, supplier], [supplier, buyer]]) {
+    notify(who.id, 'rate_prompt', {
+      body: `Rate your deal with ${other.name} (order #${o.id}). Your rating stays hidden until they rate too, or for 14 days.`,
+      buttons: R.STAR_BUTTONS, context: { type: 'rate', order_id: o.id }, dedupe: `rate-${o.id}-${who.id}`,
+    });
+  }
 }
 
 function mustOrder(id, me) {
@@ -384,8 +509,9 @@ function createOrder(me, b) {
     if (!exists) run('INSERT INTO addresses (buyer_id, label, text) VALUES (?,?,?)', me.id, str(b.address_label, 60) || 'Saved', address);
   }
   const m = get('SELECT * FROM models WHERE id = ?', modelId);
-  wa(supplierId, `New order from ${me.name}: ${modelName(m)} × ${qty} at ${rs(price)}. Token ${token}% (${rs(Math.round(price * qty * token / 100))})${proof ? ', proof attached' : ', no proof attached yet'}. Delivery: ${address}.`,
-    ['Accept', 'Decline'], { type: 'order', order_id: id });
+  notify(supplierId, 'order_new', {
+    body: `New order from ${me.name}: ${modelName(m)} × ${qty} at ${rs(price)}. Token ${token}% (${rs(Math.round(price * qty * token / 100))})${proof ? ', proof attached' : ', no proof attached yet'}. Delivery: ${address}.`,
+    buttons: ['Accept', 'Decline'], context: { type: 'order', order_id: id } });
   return id;
 }
 
@@ -394,14 +520,16 @@ function acceptOrder(o, me) {
   if (o.status !== 'pending') fail(409, `Order is already ${o.status}`);
   run("UPDATE orders SET status = 'accepted', accepted_at = ? WHERE id = ?", now(), o.id);
   run('UPDATE listings SET qty = MAX(0, qty - ?) WHERE supplier_id = ? AND model_id = ?', o.qty, o.supplier_id, o.model_id);
-  wa(o.buyer_id, `${me.name} accepted your order #${o.id}. They will mark it dispatched when it leaves.`, ['Open order'], { type: 'order', order_id: o.id });
+  notify(o.buyer_id, 'order_update', { body: `${me.name} accepted your order #${o.id}. They will mark it dispatched when it leaves.`,
+    buttons: ['Open order'], context: { type: 'order', order_id: o.id } });
 }
 function declineOrder(o, me, reason) {
   if (o.supplier_id !== me.id) fail(403, 'Only the supplier can decline');
   if (o.status !== 'pending') fail(409, `Order is already ${o.status}`);
   run("UPDATE orders SET status = 'declined', decline_reason = ? WHERE id = ?", str(reason) || 'No reason given', o.id);
   const reopened = reopenRequestFor(o, { keepChosen: false });
-  wa(o.buyer_id, `${me.name} declined order #${o.id}: ${str(reason) || 'no reason given'}.${reopened ? ' Your request is open again for other bids.' : ''}`, ['Open order'], { type: 'order', order_id: o.id });
+  notify(o.buyer_id, 'order_update', { body: `${me.name} declined order #${o.id}: ${str(reason) || 'no reason given'}.${reopened ? ' Your request is open again for other bids.' : ''}`,
+    buttons: ['Open order'], context: { type: 'order', order_id: o.id } });
 }
 
 // When an order placed from a bid falls through (declined or cancelled), give the request back to the buyer:
@@ -485,7 +613,7 @@ export async function handleApi(req, res, url) {
     const out = await r.fn({ req, res, params, body, query, me, session: auth?.session });
     if (!res.headersSent) json(res, 200, out === undefined ? { ok: true } : out);
   } catch (e) {
-    if (e instanceof HttpError) return json(res, e.status, { error: e.message });
+    if (e instanceof HttpError || e instanceof R.RatingError) return json(res, e.status, { error: e.message });
     console.error(e);
     json(res, 500, { error: 'Something went wrong on the server' });
   }
@@ -505,7 +633,7 @@ route('POST', '/api/auth/verify', 'public', ({ body, res }) => {
   const phone = normPhone(body.phone);
   const otp = get('SELECT * FROM otps WHERE phone = ?', phone);
   if (!otp || otp.code !== String(body.code || '').trim()) fail(400, 'That code is not right. Check it and try again.');
-  if (Date.now() - Date.parse(otp.at) > 10 * 60000) fail(400, 'That code has expired. Ask for a new one.');
+  if (nowMs() - Date.parse(otp.at) > 10 * 60000) fail(400, 'That code has expired. Ask for a new one.');
   run('DELETE FROM otps WHERE phone = ?', phone);
   const biz = get('SELECT * FROM businesses WHERE phone = ?', phone);
   const token = crypto.randomBytes(24).toString('hex');
@@ -531,13 +659,18 @@ route('GET', '/api/me', 'public', ({ me }) => {
     counts.pending_orders = get("SELECT COUNT(*) n FROM orders WHERE supplier_id = ? AND status = 'pending'", me.id).n;
     counts.listings = get('SELECT COUNT(*) n FROM listings WHERE supplier_id = ?', me.id).n;
     counts.unconfirmed_today = get('SELECT COUNT(*) n FROM listings WHERE supplier_id = ? AND visible = 1 AND confirmed_at < ?',
-      me.id, new Date(new Date().setHours(0, 0, 0, 0)).toISOString()).n;
+      me.id, new Date(Date.parse(pktDate() + 'T00:00:00+05:00')).toISOString()).n;
   }
   if (me.role === 'buyer') {
     counts.new_quotes = get(`SELECT COUNT(*) n FROM quotes q JOIN requests r ON r.id = q.request_id WHERE r.buyer_id = ? AND r.status = 'open'
       AND q.status = 'active'`, me.id).n;
   }
   counts.whatsapp = get("SELECT COUNT(*) n FROM wa_messages WHERE business_id = ? AND direction = 'out'", me.id).n;
+  counts.notifications = N.unreadCount(me.id);
+  if (me.role === 'buyer' || me.role === 'supplier') {
+    counts.to_rate = all(`SELECT o.id FROM orders o WHERE (o.buyer_id = ? OR o.supplier_id = ?) AND o.status = 'delivered' AND o.delivered_at > ?
+      AND NOT EXISTS (SELECT 1 FROM ratings r WHERE r.order_id = o.id AND r.rater_id = ?)`, me.id, me.id, new Date(nowMs() - R.RATING_WINDOW_MS).toISOString(), me.id).length;
+  }
   counts.unread_chats = all('SELECT id FROM conversations WHERE buyer_id = ? OR supplier_id = ?', me.id, me.id)
     .reduce((n, c) => n + (unreadFor(c.id, me.id) > 0 ? 1 : 0), 0);
   return { me: { ...publicBiz(me, me), phone: me.phone, whatsapp: me.whatsapp, address: me.address, ntn: me.ntn, installs: me.installs,
@@ -559,7 +692,7 @@ route('POST', '/api/onboard', 'any', ({ me, session, body }) => {
     body.ntn ? 'received' : 'pending', 'self', 1, 'active', 0, now()).lastInsertRowid);
   run('UPDATE sessions SET business_id = ? WHERE token = ?', id, session.token);
   if (role === 'supplier') {
-    wa(id, `Welcome to Kainat, ${name}. Buyer requests for what you sell will arrive here. Reply with a price and it becomes a quote.`);
+    notify(id, 'welcome', { body: `Welcome to Kainat, ${name}. Buyer requests for what you sell will arrive here. Reply with a price and it becomes a quote.` });
   }
   return { id };
 });
@@ -678,7 +811,7 @@ route('GET', '/api/suppliers/:id', 'user', ({ me, params }) => {
         WHERE o.buyer_id = ? AND o.supplier_id = ? ORDER BY o.id DESC LIMIT 20`, me.id, s.id) : [];
   const items = all(`SELECT l.*, m.brand, m.name, m.category, m.unit FROM listings l JOIN models m ON m.id = l.model_id
     WHERE l.supplier_id = ? AND l.visible = 1 ORDER BY m.category, m.brand`, s.id).map((l) => ({ ...l, ...priceView(l, me), price: priceView(l, me).exact ? l.price : undefined }));
-  return { supplier: publicBiz(s, me), history, items };
+  return { supplier: publicBiz(s, me), history, items, reviews: R.reviewsFor(s.id, 10) };
 });
 
 route('POST', '/api/requests', 'buyer', ({ me, body }) => {
@@ -706,13 +839,27 @@ route('POST', '/api/requests', 'buyer', ({ me, body }) => {
   return tx(() => {
     const id = Number(run(`INSERT INTO requests (buyer_id, model_id, category, description, qty, city, needed_by, scope, listing_id, status,
       created_at, expires_at, bidding) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, me.id, model?.id || null, category, description, qty, city,
-      str(body.needed_by, 20), scope, listing?.id || null, 'open', t, new Date(Date.now() + 48 * 3600000).toISOString(), bidding).lastInsertRowid);
+      str(body.needed_by, 20), scope, listing?.id || null, 'open', t, new Date(nowMs() + 48 * 3600000).toISOString(), bidding).lastInsertRowid);
     const r = get('SELECT * FROM requests WHERE id = ?', id);
-    const sups = listing ? [get('SELECT * FROM businesses WHERE id = ?', listing.supplier_id)]
-      : matchSuppliers({ model, category, city, scope, buyerId: me.id });
-    for (const s of sups) targetSupplier(r, me, s.id);
+    let first;
+    let later = 0;
+    if (scope === 'all') {
+      // Wave 1: everyone with the exact model in stock, plus the best few of the rest. The others wait 30 minutes.
+      const ranked = rankForRequest(r, matchSuppliers({ model, category, city, scope, buyerId: me.id }));
+      const stocked = ranked.filter((x) => x.inStock);
+      const rest = ranked.filter((x) => !x.inStock);
+      first = [...stocked, ...rest.slice(0, WAVE1_SIZE)].map((x) => x.s);
+      later = rest.length - Math.min(rest.length, WAVE1_SIZE);
+      run('UPDATE requests SET wave = 1, next_wave_at = ? WHERE id = ?', new Date(nowMs() + (later ? WAVE2_AFTER : NO_BIDS_AFTER)).toISOString(), id);
+      if (!later) run('UPDATE requests SET wave = 2 WHERE id = ?', id);
+    } else {
+      first = listing ? [get('SELECT * FROM businesses WHERE id = ?', listing.supplier_id)] : matchSuppliers({ model, category, city, scope, buyerId: me.id });
+      run('UPDATE requests SET wave = 2, next_wave_at = ? WHERE id = ?', new Date(nowMs() + NO_BIDS_AFTER).toISOString(), id);
+    }
+    const fresh = get('SELECT * FROM requests WHERE id = ?', id);
+    for (const s of first) targetSupplier(fresh, me, s.id, 1);
     const in_stock = get('SELECT COUNT(*) n FROM request_targets WHERE request_id = ? AND in_stock = 1', id).n;
-    return { id, sent_to: sups.length, in_stock };
+    return { id, sent_to: first.length, in_stock, later };
   });
 });
 
@@ -778,8 +925,15 @@ route('POST', '/api/requests/:id/cancel', 'buyer', ({ me, params }) => {
   const r = get('SELECT * FROM requests WHERE id = ?', int(params.id));
   if (!r || r.buyer_id !== me.id) fail(404, 'Request not found');
   if (r.status !== 'open') fail(409, 'Only open requests can be cancelled');
-  run("UPDATE requests SET status = 'cancelled' WHERE id = ?", r.id);
+  run("UPDATE requests SET status = 'cancelled', next_wave_at = NULL WHERE id = ?", r.id);
   return { ok: true };
+});
+
+route('POST', '/api/requests/:id/widen', 'buyer', ({ me, params }) => {
+  expireRequests();
+  const r = get('SELECT * FROM requests WHERE id = ?', int(params.id));
+  if (!r || r.buyer_id !== me.id) fail(404, 'Request not found');
+  return tx(() => ({ sent_to: widenRequest(r, me) }));
 });
 
 route('POST', '/api/requests/:id/quote', 'supplier', ({ me, params, body }) => {
@@ -891,7 +1045,7 @@ route('POST', '/api/invite-supplier', 'buyer', ({ me, body }) => {
         str(body.city, 60) || me.city, 'invite', me.id, 0, 'active', now()).lastInsertRowid);
       s = get('SELECT * FROM businesses WHERE id = ?', id);
     }
-    wa(s.id, `${me.name} has added you as their supplier on Kainat. You can answer their requests here on WhatsApp, no app needed.`);
+    notify(s.id, 'invited', { body: `${me.name} has added you as their supplier on Kainat. You can answer their requests here on WhatsApp, no app needed.` });
     let targeted = false;
     if (body.request_id) {
       const r = get('SELECT * FROM requests WHERE id = ? AND buyer_id = ?', int(body.request_id), me.id);
@@ -912,9 +1066,11 @@ route('GET', '/api/orders', 'user', ({ me }) => {
   return rows.map((o) => {
     const m = o.model_id ? get('SELECT * FROM models WHERE id = ?', o.model_id) : null;
     const other = get('SELECT id, name FROM businesses WHERE id = ?', o.buyer_id === me.id ? o.supplier_id : o.buyer_id);
+    const rated = !!get('SELECT 1 x FROM ratings WHERE order_id = ? AND rater_id = ?', o.id, me.id);
     return { ...o, token_proof: !!o.token_proof, model_name: modelName(m), other_name: other?.name,
       buyer_name: get('SELECT name FROM businesses WHERE id = ?', o.buyer_id)?.name,
-      supplier_name: get('SELECT name FROM businesses WHERE id = ?', o.supplier_id)?.name, total: o.price * o.qty };
+      supplier_name: get('SELECT name FROM businesses WHERE id = ?', o.supplier_id)?.name, total: o.price * o.qty,
+      rated, can_rate: !me.is_admin && !rated && o.status === 'delivered' && Date.parse(o.delivered_at) + R.RATING_WINDOW_MS > nowMs() };
   });
 });
 
@@ -935,7 +1091,8 @@ route('POST', '/api/orders/:id/proof', 'buyer', ({ me, params, body }) => {
   if (o.buyer_id !== me.id) fail(403, 'Only the buyer can upload proof');
   const file = saveProof(o.id, body.token_proof);
   run('UPDATE orders SET token_proof = ? WHERE id = ?', file, o.id);
-  wa(o.supplier_id, `${me.name} uploaded token money proof for order #${o.id}.`, ['Open order'], { type: 'order', order_id: o.id });
+  notify(o.supplier_id, 'order_update', { body: `${me.name} uploaded token money proof for order #${o.id}.`, buttons: ['Open order'],
+    context: { type: 'order', order_id: o.id } });
   return { ok: true };
 });
 
@@ -947,15 +1104,28 @@ route('POST', '/api/orders/:id/dispatch', 'supplier', ({ me, params }) => {
   if (o.supplier_id !== me.id) fail(403, 'Only the supplier can dispatch');
   if (o.status !== 'accepted') fail(409, 'Accept the order before dispatching');
   run("UPDATE orders SET status = 'dispatched', dispatched_at = ? WHERE id = ?", now(), o.id);
-  wa(o.buyer_id, `${me.name} dispatched order #${o.id}. Mark it delivered in the app when it arrives.`, ['Open order'], { type: 'order', order_id: o.id });
+  notify(o.buyer_id, 'order_update', { body: `${me.name} dispatched order #${o.id}. Mark it delivered in the app when it arrives. If you don't, it counts as delivered after 7 days.`,
+    buttons: ['Open order'], context: { type: 'order', order_id: o.id } });
 });
 
 route('POST', '/api/orders/:id/deliver', 'buyer', ({ me, params }) => {
   const o = mustOrder(params.id, me);
   if (o.buyer_id !== me.id) fail(403, 'Only the buyer can confirm delivery');
   if (!['accepted', 'dispatched'].includes(o.status)) fail(409, 'This order cannot be marked delivered yet');
-  run("UPDATE orders SET status = 'delivered', delivered_at = ?, dispatched_at = COALESCE(dispatched_at, ?) WHERE id = ?", now(), now(), o.id);
-  wa(o.supplier_id, `${me.name} confirmed delivery of order #${o.id}. It now counts in your trade history.`);
+  tx(() => markDelivered(o));
+});
+
+// ---------- ratings ----------
+route('POST', '/api/orders/:id/rating', 'user', ({ me, params, body }) => {
+  const o = mustOrder(params.id, me);
+  return tx(() => { R.submit(o, me, body); return R.forOrder(get('SELECT * FROM orders WHERE id = ?', o.id), me); });
+});
+
+route('POST', '/api/ratings/:id/reply', 'user', ({ me, params, body }) => R.reply(int(params.id), me, body.reply));
+
+route('GET', '/api/businesses/:id/reviews', 'user', ({ params }) => {
+  const b = get("SELECT * FROM businesses WHERE id = ? AND role IN ('buyer','supplier')", int(params.id)) || fail(404, 'Business not found');
+  return { summary: R.summary(b.id), reviews: R.reviewsFor(b.id, 30) };
 });
 
 route('POST', '/api/orders/:id/cancel', 'buyer', ({ me, params }) => {
@@ -965,7 +1135,7 @@ route('POST', '/api/orders/:id/cancel', 'buyer', ({ me, params }) => {
   tx(() => {
     run("UPDATE orders SET status = 'cancelled' WHERE id = ?", o.id);
     reopenRequestFor(o, { keepChosen: true });
-    wa(o.supplier_id, `${me.name} cancelled order #${o.id} before you accepted it.`);
+    notify(o.supplier_id, 'order_update', { body: `${me.name} cancelled order #${o.id} before you accepted it.`, context: { type: 'order', order_id: o.id } });
   });
 });
 
@@ -981,7 +1151,8 @@ route('POST', '/api/orders/:id/messages', 'user', ({ me, params, body }) => {
   const text = str(body.body, 1000) || fail(400, 'Type a message');
   run('INSERT INTO messages (order_id, sender_id, body, at) VALUES (?,?,?,?)', o.id, me.id, text, now());
   const other = o.buyer_id === me.id ? o.supplier_id : o.buyer_id;
-  wa(other, `Message from ${me.name} about order #${o.id}: ${text}`, ['Open order'], { type: 'order', order_id: o.id });
+  notify(other, 'order_message', { body: `Message from ${me.name} about order #${o.id}: ${text}`, buttons: ['Open order'],
+    context: { type: 'order', order_id: o.id } });
 });
 
 // ---------- supplier shop ----------
@@ -1054,50 +1225,72 @@ function waReply(me, text, button, context) {
 
   if (button === 'Yes, same') {
     const r = run('UPDATE listings SET confirmed_at = ? WHERE supplier_id = ? AND visible = 1', now(), me.id);
-    return wa(me.id, `Done. ${Number(r.changes)} prices confirmed for today.`);
+    return waSend(me.id, `Done. ${Number(r.changes)} prices confirmed for today.`);
   }
-  if (button === 'Change some') return wa(me.id, 'Open My shop in the app to change prices. Everything else stays as it is.', ['Open my shop'], { type: 'shop' });
+  if (button === 'Change some') return waSend(me.id, 'Open My shop in the app to change prices. Everything else stays as it is.', ['Open my shop'], { type: 'shop' });
   if (button === 'Not in stock' && ctx.request_id) {
     run("UPDATE request_targets SET status = 'passed' WHERE request_id = ? AND supplier_id = ?", ctx.request_id, me.id);
-    return wa(me.id, 'Noted. We will not send reminders for this request.');
+    return waSend(me.id, 'Noted. We will not send reminders for this request.');
   }
   if (button && button.startsWith('Bid Rs') && ctx.request_id) {
     const r = get('SELECT * FROM requests WHERE id = ?', ctx.request_id);
-    if (!r || r.status !== 'open') return wa(me.id, 'That request has closed. You will get the next one here.');
+    if (!r || r.status !== 'open') return waSend(me.id, 'That request has closed. You will get the next one here.');
     const q = instantBid(me, r);
     const b = bidBoard(r, me);
-    return wa(me.id, `Bid placed at ${rs(q.price)}.${b.mode === 'open' ? ` You are #${b.my_rank} of ${b.count}${b.my_rank > 1 ? `; the lowest bid is ${rs(b.lowest)}` : ''}.` : ''} Reply with a lower price at any time to revise it.`,
+    return waSend(me.id, `Bid placed at ${rs(q.price)}.${b.mode === 'open' ? ` You are #${b.my_rank} of ${b.count}${b.my_rank > 1 ? `; the lowest bid is ${rs(b.lowest)}` : ''}.` : ''} Reply with a lower price at any time to revise it.`,
       ['Lower my bid'], { type: 'request', request_id: r.id });
   }
   if ((button === 'Send price' || button === 'Bid lower' || button === 'Lower my bid') && ctx.request_id) {
-    return wa(me.id, 'Type your price per unit, quantity and token %, for example: 305000 8 20', null, { type: 'await_price', request_id: ctx.request_id });
+    return waSend(me.id, 'Type your price per unit, quantity and token %, for example: 305000 8 20', null, { type: 'await_price', request_id: ctx.request_id });
   }
   if ((button === 'Yes, add it' || button === 'Only this buyer') && ctx.quote_id) {
     const q = get('SELECT * FROM quotes WHERE id = ? AND supplier_id = ?', ctx.quote_id, me.id);
-    if (!q) return wa(me.id, 'That quote is no longer available.');
+    if (!q) return waSend(me.id, 'That quote is no longer available.');
     if (button === 'Yes, add it') {
       run('UPDATE quotes SET share = 1 WHERE id = ?', q.id);
       upsertListingFromQuote({ ...q, share: 1 });
-      return wa(me.id, 'Added to your shop. Buyers in your city can now find it in search.');
+      return waSend(me.id, 'Added to your shop. Buyers in your city can now find it in search.');
     }
     run('UPDATE quotes SET share = 0 WHERE id = ?', q.id);
-    return wa(me.id, 'Okay, only this buyer sees that price.');
+    return waSend(me.id, 'Okay, only this buyer sees that price.');
   }
   if ((button === 'Accept' || button === 'Decline') && ctx.order_id) {
     const o = get('SELECT * FROM orders WHERE id = ?', ctx.order_id);
-    if (!o || o.supplier_id !== me.id) return wa(me.id, 'That order was not found.');
-    if (o.status !== 'pending') return wa(me.id, `Order #${o.id} is already ${o.status}.`);
-    if (button === 'Accept') { acceptOrder(o, me); return wa(me.id, `Order #${o.id} accepted. Mark it dispatched in the app when it leaves.`); }
-    return wa(me.id, `Why are you declining order #${o.id}? Reply with a short reason.`, null, { type: 'await_decline', order_id: o.id });
+    if (!o || o.supplier_id !== me.id) return waSend(me.id, 'That order was not found.');
+    if (o.status !== 'pending') return waSend(me.id, `Order #${o.id} is already ${o.status}.`);
+    if (button === 'Accept') { acceptOrder(o, me); return waSend(me.id, `Order #${o.id} accepted. Mark it dispatched in the app when it leaves.`); }
+    return waSend(me.id, `Why are you declining order #${o.id}? Reply with a short reason.`, null, { type: 'await_decline', order_id: o.id });
   }
-  if (button) return wa(me.id, 'Open the app to continue.');
+  // Rating from WhatsApp: the star tap sets the stars; tags and a comment can be added in the app.
+  const star = /^([1-5]) ★$/.exec(button || '');
+  if (star && ctx.order_id) {
+    const o = get('SELECT * FROM orders WHERE id = ?', ctx.order_id);
+    if (!o || (o.buyer_id !== me.id && o.supplier_id !== me.id)) return waSend(me.id, 'That order was not found.');
+    let saved;
+    try {
+      saved = R.submit(o, me, { stars: Number(star[1]), starsOnly: true });
+    } catch (e) {
+      if (e instanceof R.RatingError) return waSend(me.id, e.message + '.');
+      throw e;
+    }
+    return waSend(me.id, `Thanks, ${star[1]} ★ saved for order #${o.id}. ${saved.revealed_at ? 'You have both rated, so both ratings are now shown. See theirs in the app.' : 'It stays hidden until they rate too.'} Add details in the app if you like.`,
+      ['Open order'], { type: 'order', order_id: o.id });
+  }
+  if (button === 'Widen search' && ctx.request_id) {
+    const r = get('SELECT * FROM requests WHERE id = ? AND buyer_id = ?', ctx.request_id, me.id);
+    if (!r || r.status !== 'open') return waSend(me.id, 'That request has closed.');
+    const n = widenRequest(r, me);
+    return waSend(me.id, n ? `Sent to ${n} more supplier${n === 1 ? '' : 's'} in other cities who sell this.` : 'No other suppliers sell this yet. The Kainat team will look for one.',
+      ['Open request'], { type: 'request', request_id: r.id });
+  }
+  if (button) return waSend(me.id, 'Open the app to continue.');
 
   // Free text: decline reason, price reply, or help.
   const last = get(`SELECT * FROM wa_messages WHERE business_id = ? AND direction = 'out' AND context IS NOT NULL ORDER BY id DESC LIMIT 1`, me.id);
   const lastCtx = last ? JSON.parse(last.context) : {};
   if (lastCtx.type === 'await_decline') {
     const o = get('SELECT * FROM orders WHERE id = ?', lastCtx.order_id);
-    if (o && o.status === 'pending') { declineOrder(o, me, text); return wa(me.id, `Order #${o.id} declined. The buyer has been told.`); }
+    if (o && o.status === 'pending') { declineOrder(o, me, text); return waSend(me.id, `Order #${o.id} declined. The buyer has been told.`); }
   }
   if (me.role === 'supplier') {
     const parsed = parseQuoteText(text);
@@ -1115,15 +1308,15 @@ function waReply(me, text, button, context) {
         const buyer = get('SELECT name FROM businesses WHERE id = ?', r.buyer_id);
         const m = r.model_id ? get('SELECT * FROM models WHERE id = ?', r.model_id) : null;
         if (m) {
-          return wa(me.id, `Quote sent to ${buyer.name}: ${modelName(m)} at ${rs(q.price)}, ${q.qty} available, ${q.token_pct}% token.\n\nAlso show this price to other buyers in your shop?`,
+          return waSend(me.id, `Quote sent to ${buyer.name}: ${modelName(m)} at ${rs(q.price)}, ${q.qty} available, ${q.token_pct}% token.\n\nAlso show this price to other buyers in your shop?`,
             ['Yes, add it', 'Only this buyer'], { type: 'share', quote_id: q.id });
         }
-        return wa(me.id, `Quote sent to ${buyer.name}: ${rs(q.price)} per unit, ${q.qty} available, ${q.token_pct}% token.`);
+        return waSend(me.id, `Quote sent to ${buyer.name}: ${rs(q.price)} per unit, ${q.qty} available, ${q.token_pct}% token.`);
       }
-      return wa(me.id, 'That request has closed. You will get the next one here.');
+      return waSend(me.id, 'That request has closed. You will get the next one here.');
     }
   }
-  return wa(me.id, me.role === 'supplier'
+  return waSend(me.id, me.role === 'supplier'
     ? 'To quote, reply to a request with price, quantity and token %, for example: 305000 8 20'
     : 'Open the app to see your quotes and orders.');
 }
@@ -1141,7 +1334,7 @@ route('POST', '/api/whatsapp', 'user', ({ me, body }) => {
 
 // ---------- admin ----------
 route('GET', '/api/admin/overview', 'admin', () => {
-  const weekAgo = new Date(Date.now() - 7 * 864e5).toISOString();
+  const weekAgo = new Date(nowMs() - 7 * 864e5).toISOString();
   const fresh = get('SELECT COUNT(*) n FROM listings WHERE visible = 1 AND confirmed_at > ?', weekAgo).n;
   const perModel = all('SELECT model_id, COUNT(DISTINCT supplier_id) n FROM listings WHERE visible = 1 GROUP BY model_id');
   const popular = perModel.filter((x) => x.n >= 3).length;
@@ -1170,6 +1363,8 @@ route('GET', '/api/admin/overview', 'admin', () => {
       buyers: get("SELECT COUNT(*) n FROM businesses WHERE role = 'buyer'").n,
       pending_models: get("SELECT COUNT(*) n FROM models WHERE status = 'pending'").n,
       disputes: get('SELECT COUNT(*) n FROM orders WHERE disputed = 1').n,
+      low_ratings: R.lowCount(),
+      wa_waiting: get("SELECT COUNT(*) n FROM notifications WHERE wa_status IN ('queued','held')").n,
       docs_to_check: get("SELECT COUNT(*) n FROM businesses WHERE role = 'supplier' AND docs_status IN ('pending','received')").n,
       open_requests: get("SELECT COUNT(*) n FROM requests WHERE status = 'open'").n,
     },
@@ -1218,10 +1413,12 @@ route('POST', '/api/admin/suppliers', 'admin', ({ body }) => {
     }
     // Welcome first, so it is the first thing the supplier reads; it is completed with the waiting count once known.
     const welcome = (waiting) => `Assalam o Alaikum${body.contact ? ' ' + str(body.contact, 80) + ' sahib' : ''}. Your shop ${name} is ready on Kainat with ${items.length} item(s), set up by our team. Sign in with this number to check it.${waiting ? ` ${waiting} buyer request(s) are already waiting.` : ''}`;
-    wa(id, welcome(0));
-    const welcomeId = get('SELECT MAX(id) m FROM wa_messages WHERE business_id = ?', id).m;
+    const sent = notify(id, 'welcome', { body: welcome(0) });
     const waiting = targetOpenRequests(id);
-    if (waiting) run('UPDATE wa_messages SET body = ? WHERE id = ?', welcome(waiting), welcomeId);
+    if (waiting) {
+      run('UPDATE notifications SET body = ? WHERE id = ?', welcome(waiting), sent.id);
+      if (sent.waId) run('UPDATE wa_messages SET body = ? WHERE id = ?', welcome(waiting), sent.waId);
+    }
     return { id, items: items.length, requests_waiting: waiting };
   });
 });
@@ -1265,15 +1462,38 @@ route('POST', '/api/admin/orders/:id/resolve', 'admin', ({ me, params, body }) =
   const o = get('SELECT * FROM orders WHERE id = ?', int(params.id)) || fail(404, 'Order not found');
   run('UPDATE orders SET disputed = 0 WHERE id = ?', o.id);
   run('INSERT INTO messages (order_id, sender_id, body, at) VALUES (?,?,?,?)', o.id, me.id, `Kainat team: ${str(body.note, 500) || 'Problem marked as resolved.'}`, now());
+  R.maybeReveal(o.id); // ratings held back by the problem can now be shown, if both sides rated
   return { ok: true };
 });
 
-route('POST', '/api/admin/price-check', 'admin', () => {
-  const sups = all(`SELECT b.id, COUNT(l.id) n FROM businesses b JOIN listings l ON l.supplier_id = b.id AND l.visible = 1
-    WHERE b.role = 'supplier' AND b.status = 'active' GROUP BY b.id`);
-  for (const s of sups) wa(s.id, `Good morning. Same prices as yesterday for your ${s.n} items?`, ['Yes, same', 'Change some'], { type: 'pricecheck' });
-  return { sent: sups.length };
+route('GET', '/api/admin/ratings', 'admin', ({ query }) => R.adminList({ low: query.low === '1' }));
+route('POST', '/api/admin/ratings/:id/hide', 'admin', ({ params, body }) => R.setHidden(int(params.id), body.hidden !== false));
+
+route('GET', '/api/admin/notifications', 'admin', ({ query }) => {
+  const rows = all(`SELECT n.id, n.business_id, n.event, n.grp, n.priority, n.body, n.wa_status, n.send_after, n.sent_at, n.read_at, n.created_at, b.name
+    FROM notifications n JOIN businesses b ON b.id = n.business_id ${query.status ? 'WHERE n.wa_status = ?' : ''} ORDER BY n.id DESC LIMIT 200`,
+  ...(query.status ? [query.status] : []));
+  const counts = Object.fromEntries(all(`SELECT wa_status, COUNT(*) n FROM notifications WHERE created_at > ? GROUP BY wa_status`,
+    new Date(nowMs() - 7 * DAY).toISOString()).map((r) => [r.wa_status, r.n]));
+  return { rows, counts };
 });
+
+// The morning price check. The scheduled run skips suppliers who already confirmed their prices today.
+function sendPriceCheck({ onlyUnconfirmed = false } = {}) {
+  const todayStart = new Date(Date.parse(pktDate() + 'T00:00:00+05:00')).toISOString();
+  const sups = all(`SELECT b.id, COUNT(l.id) n, SUM(CASE WHEN l.confirmed_at < ? THEN 1 ELSE 0 END) stale FROM businesses b
+    JOIN listings l ON l.supplier_id = b.id AND l.visible = 1 WHERE b.role = 'supplier' AND b.status = 'active' GROUP BY b.id`, todayStart);
+  let sent = 0;
+  for (const s of sups) {
+    if (onlyUnconfirmed && !s.stale) continue;
+    notify(s.id, 'price_check', { body: `Good morning. Same prices as yesterday for your ${s.n} items?`, buttons: ['Yes, same', 'Change some'],
+      context: { type: 'pricecheck' } });
+    sent++;
+  }
+  return sent;
+}
+
+route('POST', '/api/admin/price-check', 'admin', () => tx(() => ({ sent: sendPriceCheck() })));
 
 route('GET', '/api/admin/whatsapp', 'admin', () => all(`SELECT w.*, b.name FROM wa_messages w JOIN businesses b ON b.id = w.business_id
   ORDER BY w.id DESC LIMIT 150`).map((m) => ({ ...m, buttons: m.buttons ? JSON.parse(m.buttons) : null })));
@@ -1284,6 +1504,83 @@ route('GET', '/api/admin/requests', 'admin', () => {
     (SELECT COUNT(*) FROM quotes q WHERE q.request_id = r.id) quotes FROM requests r LEFT JOIN models m ON m.id = r.model_id
     JOIN businesses b ON b.id = r.buyer_id ORDER BY r.id DESC LIMIT 100`);
 });
+
+// ---------- notifications ----------
+route('GET', '/api/notifications', 'user', ({ me }) => ({ items: N.listFor(me.id), unread: N.unreadCount(me.id) }));
+route('POST', '/api/notifications/read', 'user', ({ me, body }) => { N.markRead(me.id, int(body.id)); return { unread: N.unreadCount(me.id) }; });
+const prefsView = (p) => ({ wa_requests: !!p.wa_requests, wa_bidding: !!p.wa_bidding, wa_chat: !!p.wa_chat, wa_shop: !!p.wa_shop,
+  wa_ratings: !!p.wa_ratings, quiet_start: p.quiet_start, quiet_end: p.quiet_end });
+route('GET', '/api/notify-prefs', 'user', ({ me }) => prefsView(N.prefsFor(me.id)));
+route('PUT', '/api/notify-prefs', 'user', ({ me, body }) => prefsView(N.savePrefs(me.id, body)));
+
+// ---------- scheduled jobs ----------
+// Run every minute by server.js. Each job is idempotent: running it twice in a row changes nothing the second time.
+export const ORDER_REMINDER_AFTER = 4 * HOUR;
+export const AUTO_DELIVER_AFTER = 7 * DAY;
+export const CLOSING_NOTICE_BEFORE = 6 * HOUR;
+export const PRICE_CHECK_HOUR = 8;
+export const PRICE_CHECK_UNTIL = 11; // if the server was down all morning, wait for the next day
+
+const JOBS = {
+  expire: () => { const before = get("SELECT COUNT(*) n FROM requests WHERE status = 'expired'").n; expireRequests();
+    return get("SELECT COUNT(*) n FROM requests WHERE status = 'expired'").n - before; },
+  waves: runWaves,
+  closing: () => {
+    const due = all("SELECT * FROM requests WHERE status = 'open' AND closing_notice_at IS NULL AND expires_at > ? AND expires_at <= ?",
+      now(), new Date(nowMs() + CLOSING_NOTICE_BEFORE).toISOString());
+    for (const r of due) {
+      const bids = get("SELECT COUNT(*) n FROM quotes WHERE request_id = ? AND status = 'active'", r.id).n;
+      notify(r.buyer_id, 'request_closing', {
+        body: bids ? `Your request for ${requestWhat(r)} closes in about 6 hours. You have ${bids} bid${bids === 1 ? '' : 's'}; accept one before it closes.`
+          : `Your request for ${requestWhat(r)} closes in about 6 hours with no bids yet. Widen it or invite a supplier you know.`,
+        buttons: bids ? ['See bids'] : ['Widen search', 'Open request'], context: { type: 'request', request_id: r.id }, dedupe: `closing-${r.id}`,
+      });
+      run('UPDATE requests SET closing_notice_at = ? WHERE id = ?', now(), r.id);
+    }
+    return due.length;
+  },
+  orderReminders: () => {
+    const due = all("SELECT * FROM orders WHERE status = 'pending' AND accept_reminded_at IS NULL AND created_at <= ?", new Date(nowMs() - ORDER_REMINDER_AFTER).toISOString());
+    for (const o of due) {
+      const buyer = get('SELECT name FROM businesses WHERE id = ?', o.buyer_id);
+      notify(o.supplier_id, 'order_reminder', { body: `Order #${o.id} from ${buyer.name} has waited 4 hours. Accept or decline it so they can plan.`,
+        buttons: ['Accept', 'Decline'], context: { type: 'order', order_id: o.id }, dedupe: `remind-${o.id}` });
+      run('UPDATE orders SET accept_reminded_at = ? WHERE id = ?', now(), o.id);
+    }
+    return due.length;
+  },
+  autoDeliver: () => {
+    const due = all("SELECT * FROM orders WHERE status = 'dispatched' AND dispatched_at <= ?", new Date(nowMs() - AUTO_DELIVER_AFTER).toISOString());
+    for (const o of due) markDelivered(o, { auto: true });
+    return due.length;
+  },
+  ratings: () => { const r = R.ratingJobs(); return r.revealed + r.reminded; },
+  priceCheck: () => {
+    // Only in the morning window: a server started in the afternoon must not send "Good morning" at 3 pm.
+    const h = pktHour();
+    if (h < PRICE_CHECK_HOUR || h >= PRICE_CHECK_UNTIL) return 0;
+    const today = pktDate();
+    if (get("SELECT value FROM job_state WHERE key = 'price_check_date'")?.value === today) return 0;
+    run("INSERT INTO job_state (key, value) VALUES ('price_check_date', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", today);
+    return sendPriceCheck({ onlyUnconfirmed: true });
+  },
+  flush: N.flushWaiting,
+};
+
+export function runJobs(names = Object.keys(JOBS)) {
+  const out = {};
+  for (const n of names) {
+    if (!JOBS[n]) continue;
+    try { out[n] = tx(() => JOBS[n]()); } catch (e) { console.error(`Job ${n} failed:`, e); out[n] = 'error'; }
+  }
+  return out;
+}
+
+// Test hooks: move the clock and run jobs on demand. Only present when the server starts with TEST_HOOKS=1.
+if (process.env.TEST_HOOKS === '1') {
+  route('POST', '/api/test/clock', 'public', ({ body }) => ({ now: setClock({ set: body.set, advanceMs: Number(body.advance_minutes || 0) * MIN }) }));
+  route('POST', '/api/test/tick', 'public', ({ body }) => runJobs(Array.isArray(body.jobs) ? body.jobs : undefined));
+}
 
 route('GET', '/api/health', 'public', () => ({ ok: true, time: now() }));
 
