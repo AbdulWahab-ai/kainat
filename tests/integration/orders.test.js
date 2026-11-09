@@ -27,7 +27,7 @@ test('order validation', async () => {
 });
 
 test('token proof must be an image or PDF under 6 MB', async () => {
-  await rejects(order({ listing_id: sunCityListing.id, token_proof: 'data:text/html;base64,PGgxPg==' }), 400, /image or PDF/);
+  await rejects(order({ listing_id: sunCityListing.id, token_proof: 'data:text/html;base64,PGgxPg==' }), 400, /image .*or a PDF/);
   await rejects(order({ listing_id: sunCityListing.id, token_proof: 'not a data url' }), 400);
   const big = 'data:image/png;base64,' + Buffer.alloc(6.5 * 1024 * 1024).toString('base64');
   await rejects(order({ listing_id: sunCityListing.id, token_proof: big }), 400, /6 MB/);
@@ -196,12 +196,18 @@ test('order lists and details are private', async () => {
   assert.ok((await admin.call('GET', '/api/orders')).length >= mine.length + theirs.length - 1);
 });
 
-test('contact details appear once the two sides have an order', async () => {
-  const before = await other.call('GET', '/api/suppliers/4'); // Green Volt
-  assert.equal(before.supplier.phone, '03003333333', 'Green Roof already traded with Green Volt');
+test('phone numbers never show to the other side, even after an order; the business and admins still see their own', async () => {
+  const before = await other.call('GET', '/api/suppliers/4'); // Green Volt, a past partner of Green Roof
+  assert.equal(before.supplier.phone, undefined);
   const fresh = await as(srv.base, '03019990000');
   await fresh.call('POST', '/api/onboard', { role: 'buyer', name: 'Fresh Buyer', city: 'Lahore' });
+  const { id } = await fresh.call('POST', '/api/orders', { listing_id: sunCityListing.id, qty: 1, address: 'Gulberg' });
   assert.equal((await fresh.call('GET', '/api/suppliers/3')).supplier.phone, undefined);
-  await fresh.call('POST', '/api/orders', { listing_id: sunCityListing.id, qty: 1, address: 'Gulberg' });
-  assert.equal((await fresh.call('GET', '/api/suppliers/3')).supplier.phone, '03002222222');
+  const o = await fresh.call('GET', `/api/orders/${id}`);
+  assert.equal(o.supplier.phone, undefined);
+  assert.equal(o.supplier.whatsapp, undefined);
+  const sc = await as(srv.base, 'sunCity');
+  assert.equal((await sc.call('GET', `/api/orders/${id}`)).buyer.phone, undefined, 'the supplier does not see the buyer’s number either');
+  assert.equal((await sc.call('GET', '/api/me')).me.phone, '03002222222', 'a business sees its own number');
+  assert.equal((await admin.call('GET', `/api/orders/${id}`)).supplier.phone, '03002222222', 'the Kainat team sees numbers');
 });

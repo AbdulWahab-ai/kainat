@@ -89,14 +89,16 @@ test('a single listing hides the exact price from buyers who should see a range'
   assert.equal((await verified.call('GET', `/api/listings/${id}`)).price, 325000);
 });
 
-test('supplier profile hides contact details until there is an order, and shows history with this buyer', async () => {
+test('supplier profile: the phone number never shows, the address only to partners, and history with this buyer', async () => {
   const alNoor = await unverified.call('GET', '/api/suppliers/2');
   assert.equal(alNoor.supplier.phone, undefined);
   assert.equal(alNoor.supplier.address, undefined);
   assert.equal(alNoor.history.length, 0);
   assert.ok(alNoor.items.every((i) => i.price === undefined || i.visibility === 'exact'));
   const forPartner = await verified.call('GET', '/api/suppliers/2');
-  assert.ok(forPartner.supplier.phone, 'SunPeak traded with Al-Noor, so contact shows');
+  assert.equal(forPartner.supplier.phone, undefined, 'contact stays on Kainat, even for a partner');
+  assert.equal(forPartner.supplier.whatsapp, undefined);
+  assert.ok(forPartner.supplier.address, 'a partner sees the business address');
   assert.equal(forPartner.history.length, 3);
   await rejects(verified.call('GET', '/api/suppliers/8'), 404, /Supplier not found/); // id 8 is a buyer
   await rejects(verified.call('GET', '/api/suppliers/99999'), 404);

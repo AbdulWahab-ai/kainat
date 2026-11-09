@@ -277,6 +277,25 @@ CREATE TABLE IF NOT EXISTS ratings (
   UNIQUE (order_id, rater_id)
 );
 CREATE INDEX IF NOT EXISTS idx_ratings_ratee ON ratings(ratee_id);
+-- Sign-in code requests, for rate limits per number and per network address.
+CREATE TABLE IF NOT EXISTS otp_requests (
+  id INTEGER PRIMARY KEY,
+  phone TEXT NOT NULL,
+  ip TEXT,
+  at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_otp_req_phone ON otp_requests(phone, at);
+CREATE INDEX IF NOT EXISTS idx_otp_req_ip ON otp_requests(ip, at);
+-- Attempts to share a phone number or WhatsApp link. The number itself is never stored.
+CREATE TABLE IF NOT EXISTS contact_attempts (
+  id INTEGER PRIMARY KEY,
+  business_id INTEGER NOT NULL REFERENCES businesses(id),
+  place TEXT NOT NULL,                          -- chat | order_message | request | quote | order_note | profile
+  ref_id INTEGER,
+  sent_masked INTEGER NOT NULL DEFAULT 0,       -- 1 when they chose "send without the number"
+  at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_contact_attempts ON contact_attempts(business_id, at);
 -- Small key/value store for scheduled jobs (for example, the day the morning price check last ran).
 CREATE TABLE IF NOT EXISTS job_state (
   key TEXT PRIMARY KEY,
@@ -303,6 +322,8 @@ export async function init() {
   addColumn('orders', 'auto_delivered', 'INTEGER NOT NULL DEFAULT 0');
   addColumn('orders', 'accept_reminded_at', 'TEXT');
   addColumn('orders', 'rating_reminded_at', 'TEXT');
+  addColumn('otps', 'attempts', 'INTEGER NOT NULL DEFAULT 0');
+  addColumn('sessions', 'last_seen', 'TEXT');
   const count = get('SELECT COUNT(*) n FROM businesses').n;
   if (count === 0) {
     const { seed } = await import('./seed.js');

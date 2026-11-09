@@ -11,6 +11,7 @@
 import { all, get, run } from './db.js';
 import { nowMs, nowIso, DAY } from './clock.js';
 import { notify } from './notify.js';
+import { phoneIn } from '../public/js/phone.js';
 
 export const TAGS = {
   buyer: ['Price as quoted', 'On time', 'Genuine stock', 'Good packing', 'Responsive'],
@@ -96,6 +97,7 @@ export function submit(o, me, body) {
   const ratee = role === 'buyer' ? o.supplier_id : o.buyer_id;
   const tags = Array.isArray(body.tags) ? [...new Set(body.tags.filter((t) => TAGS[role].includes(t)))] : [];
   const comment = body.comment === undefined || body.comment === null ? null : String(body.comment).trim().slice(0, 500) || null;
+  if (comment && phoneIn(comment)) fail(400, 'Phone numbers can’t go in ratings. Everyone can read them.');
   const existing = get('SELECT * FROM ratings WHERE order_id = ? AND rater_id = ?', o.id, me.id);
   const t = nowIso();
   if (existing) {
@@ -145,6 +147,7 @@ export function reply(ratingId, me, text) {
   if (!r.revealed_at) fail(409, 'You can reply once the rating is shown');
   if (r.reply) fail(409, 'You have already replied to this rating');
   const body = String(text || '').trim().slice(0, 500);
+  if (phoneIn(body)) fail(400, 'Phone numbers can’t go in replies. Everyone can read them.');
   if (!body) fail(400, 'Type a reply');
   run('UPDATE ratings SET reply = ?, reply_at = ? WHERE id = ?', body, nowIso(), r.id);
   return { ok: true };

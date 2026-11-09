@@ -13,7 +13,7 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server.js'], {
-  cwd: ROOT, env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, TEST_HOOKS: '1', DEFAULT_QUIET: 'off' }, stdio: ['ignore', 'pipe', 'pipe'],
+  cwd: ROOT, env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, TEST_HOOKS: '1', DEFAULT_QUIET: 'off', OTP_MAX_PER_HOUR: '100000', OTP_MAX_PER_IP_HOUR: '100000', OTP_MIN_GAP_SEC: '0' }, stdio: ['ignore', 'pipe', 'pipe'],
 });
 server.stderr.on('data', (d) => process.stderr.write(d));
 

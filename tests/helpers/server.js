@@ -20,7 +20,7 @@ export const PHONES = {
 export async function startServer(env = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kainat-test-'));
   const proc = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server.js'], {
-    cwd: ROOT, env: { ...process.env, PORT: '0', DATA_DIR: dataDir, TEST_HOOKS: '1', DEFAULT_QUIET: 'off', ...env }, stdio: ['ignore', 'pipe', 'pipe'],
+    cwd: ROOT, env: { ...process.env, PORT: '0', DATA_DIR: dataDir, TEST_HOOKS: '1', DEFAULT_QUIET: 'off', OTP_MAX_PER_HOUR: '100000', OTP_MAX_PER_IP_HOUR: '100000', OTP_MIN_GAP_SEC: '0', ...env }, stdio: ['ignore', 'pipe', 'pipe'],
   });
   let stderr = '';
   proc.stderr.on('data', (d) => { stderr += d; });
@@ -77,10 +77,13 @@ export class Client {
     return data;
   }
   async login(phone) {
+    this.phone = phone;
     const s = await this.call('POST', '/api/auth/start', { phone });
     await this.call('POST', '/api/auth/verify', { phone, code: s.devCode });
     return (await this.call('GET', '/api/me')).me;
   }
+  // Sign in again, for tests that move the server clock past the 30-day session limit.
+  relogin() { return this.login(this.phone); }
   me() { return this.call('GET', '/api/me'); }
 }
 
