@@ -1,13 +1,36 @@
 # Kainat test report
 
-Date: 5 November 2026. The suite passed in full on two consecutive runs.
+First written 5 November 2026. Updated 9 November 2026 for notifications and ratings: the full suite of 277 tests and checks passes.
 
 | Layer | Tests | Result | What it covers |
 | --- | --- | --- | --- |
-| Unit | 28 | Pass | Phone normalisation, number and text parsing, price ranges, city matching, WhatsApp price parsing, date and money formatting, page-routing rules, database upgrades, transactions |
-| Integration (API) | 95 | Pass | All 60 API routes. Each is checked for anonymous access (401), wrong role (403), validation errors, state rules, privacy and success paths |
+| Unit | 35 | Pass | Phone normalisation, number and text parsing, price ranges, city matching, WhatsApp price parsing, date and money formatting, page-routing rules, database upgrades, transactions, Pakistan time and quiet hours, alert links |
+| Integration (API) | 123 | Pass | All 71 API routes. Each is checked for anonymous access (401), wrong role (403), validation errors, state rules, privacy and success paths. Also every notification rule and scheduled job, using a server clock the tests move forward |
 | Smoke (API journey) | 50 checks | Pass | One long buyer-to-supplier-to-admin journey, kept from the first build |
-| End-to-end (browser) | 62 | Pass | All 32 screens for every role, on a phone and a desktop, driven in headless Chromium |
+| End-to-end (browser) | 69 | Pass | All 35 screens for every role, on a phone and a desktop, driven in headless Chromium |
+
+## Notifications and ratings (added 9 November)
+
+The test server starts with test hooks: `/api/test/clock` moves its clock forward, and `/api/test/tick` runs the scheduled jobs on demand. Quiet hours are off by default so tests behave the same at any time of day; the quiet-hours tests switch them on.
+
+**Notifications:**
+- **In-app list and bell:** links to the right screen, unread counts, mark read.
+- **Preferences:** defaults, validation, switching a group off for WhatsApp. Orders can't be switched off.
+- **Batching:** the first bid goes out at once, and later alerts within 15 minutes arrive as one summary. Urgent alerts are never batched.
+- **Quiet hours:** a request at 11 pm Pakistan time waits until 8 am, while a new order still goes through.
+- **Matching waves:** wave 1 is the in-stock suppliers plus the best 5. Wave 2 goes out after 30 minutes only if fewer than 2 bids came in. The no-bids notice comes at 2 hours. Widening works from the app and from the WhatsApp button.
+- **Daily cap:** 10 WhatsApp alerts a day for requests where the supplier doesn't hold the exact model. It resets after 24 hours.
+- **Scheduled jobs:** the closing notice and expiry notice (each sent once), the 4-hour order reminder (once), auto-delivery after 7 days, and the morning price check (once a day from 8 am, skipping suppliers who already confirmed). Every job is checked to change nothing when run twice.
+
+**Ratings:**
+- **Who can rate:** only the two sides, only after delivery, only 1 to 5 stars. Tags are filtered by side.
+- **Blind reveal:** ratings show once both sides have rated, and can be edited until then. The first rating nudges the other side without saying what it was. A single rating is revealed after 14 days.
+- **Time limits and problems:** a flagged order holds ratings until it is resolved. Rating closes after 30 days, and each side gets one reminder after 3 days.
+- **Replies:** once, only by the business that was rated, only after the rating is shown.
+- **Scores:** need 3 ratings, and count only the latest rating from each partner.
+- **WhatsApp star taps:** set the stars and keep the tags and comment from the app.
+- **Admin:** the low-ratings filter, and hiding a comment while its stars still count.
+- **Browser:** the bell, alert settings, the rating form and replies, scores on profiles and offers, the "Best rated" sort, widening a request, and the admin ratings and notification log.
 
 ## How to run
 
@@ -64,6 +87,17 @@ Each fix addresses the root cause and has a test that would catch it coming back
 | 8 | Item rows on the admin "Build a supplier shop" form had no labels | Screen readers could not name the model, price, stock and token fields | Each field now has a label |
 
 Fixes 4 and 7 were also checked for flakiness by running the suite in parallel several times.
+
+Found while building notifications and ratings (9 November):
+
+| # | Bug | Effect | Fix |
+| --- | --- | --- | --- |
+| 9 | Only normal alerts counted toward the 15-minute batch window | A buyer could get the first bid and the second bid as two separate WhatsApp messages seconds apart | Any WhatsApp alert in the last 15 minutes, urgent ones too, starts the batch window |
+| 10 | The scheduled price check skipped shops the team built but the supplier had not claimed yet | Suppliers who only use WhatsApp would never get the morning price check | The price check goes to every active supplier with listings, claimed or not |
+| 11 | A WhatsApp star tap that completed both ratings replied "stays hidden until they rate too" | Wrong message: both ratings were already shown | The reply says whether the ratings are now shown |
+| 12 | The "rated your deal" message doubled the punctuation after a comment | Read as `…day.”.` | The comment is quoted at the end of its own sentence |
+| 13 | The browser tests' toast check could read the previous toast while it was still on screen | Tests failed now and then, depending on timing | Each toast carries a number; the check waits for a newer one |
+| 14 | The morning price check ran whenever the server first ran its jobs after 8 am | A server restarted at 2:30 pm sent "Good morning" in the afternoon | The check runs only between 8 and 11 am Pakistan time; otherwise it waits for the next morning |
 
 ## Known limits
 

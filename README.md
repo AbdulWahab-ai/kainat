@@ -38,7 +38,7 @@ To restore:
 3. Copy the backup's `uploads` folder into `data\`.
 4. Start the server again.
 
-To test everything, run `npm test`. It runs unit, API integration, smoke and browser end-to-end tests (235 tests and checks) against throwaway databases, so your data is untouched. [TESTING.md](TESTING.md) lists what is covered and the bugs the tests found.
+To test everything, run `npm test`. It runs unit, API integration, smoke and browser end-to-end tests (277 tests and checks) against throwaway databases, so your data is untouched. [TESTING.md](TESTING.md) lists what is covered and the bugs the tests found.
 
 The project folder is still named `solar-procure`, so existing shortcuts and scripts keep working.
 
@@ -67,6 +67,26 @@ All businesses, people and prices are made up for the demo.
 - **Open or sealed.** The buyer chooses. With open bidding, suppliers see the lowest bid and their place. When someone beats them they get an outbid alert with a "Beat the lowest" shortcut. With sealed bids, suppliers see only their own.
 - **Live board.** Bids refresh every few seconds on both sides. The buyer sees each bid's best-price badge, how many times it was revised and how far it dropped. "Accept bid" turns it into an order.
 - **In stock, not bid yet.** Under the bids, the buyer sees in-stock suppliers who have not bid. They can order from them directly or ask them to bid.
+
+**Notifications**
+- **One engine for every alert.** Requests, bids, outbid alerts, orders, chat, price checks and ratings all go through it. Every alert shows under the bell in the app, and goes to WhatsApp unless the business switched that type off. Orders always go to WhatsApp.
+- **Urgent alerts go out at once.** These are new requests, the first bid on a request, outbid alerts and order updates. Other alerts wait if the business had a WhatsApp alert in the last 15 minutes, then arrive together as one summary message.
+- **Quiet hours.** The default is 10 pm to 8 am, Pakistan time, and each business can change it in Profile. WhatsApp alerts wait until morning; new orders still go through.
+- **Matching in waves.** Suppliers with the exact model in stock, plus the 5 best other matches, get a new request at once. If fewer than 2 bids arrive in 30 minutes, the rest of the city gets it. After 2 hours with no bids, the buyer is told and can widen it to suppliers in other cities.
+  - Suppliers are ranked by stock, past deals with this buyer, how often they answer requests, fresh prices and rating.
+  - Suppliers get at most 10 WhatsApp alerts a day for requests where they don't hold the exact model.
+- **Scheduled jobs**, every minute:
+  - a notice 6 hours before a request closes, and when it expires
+  - a reminder to the supplier when an order has waited 4 hours
+  - orders count as delivered 7 days after dispatch
+  - the morning price check at 8 am, sent only to suppliers who haven't confirmed their prices that day
+- **Admin notification log**, with counts of what was sent, batched, held for quiet hours or switched off.
+
+**Ratings**
+- **Who rates.** After delivery, buyer and supplier rate each other: 1 to 5 stars, quick tags and an optional comment. They can rate in the app, or by tapping a star on WhatsApp.
+- **Blind until both rate.** Neither side sees the other's rating until both have rated, or 14 days have passed. A rating can be changed until then. Rating closes 30 days after delivery.
+- **Scores.** A score shows from 3 ratings. Only the last 12 months count, and only the latest rating from each partner. Scores appear on offers, bids, supplier profiles and the supplier's request inbox. Buyers can sort offers by "Best rated".
+- **Replies and moderation.** The rated business can reply once in public. Ratings on an order with a flagged problem wait until it is resolved. The Kainat team sees low ratings and can hide an abusive comment, but never change the stars.
 
 **Chat**
 - **Buyer and supplier chats.** They talk without sharing phone numbers. A chat can be general or about one request, and every bid is posted into the request's chat so the negotiation stays in one thread.
@@ -115,7 +135,8 @@ These are later phases in the PRD:
 
 - `server.js` serves the app and the API.
 - `src/db.js` holds the schema and SQLite helpers. `src/seed.js` holds the demo data.
-- `src/api.js` holds every API route and its role check.
+- `src/api.js` holds every API route and its role check, the matching waves and the scheduled jobs.
+- `src/notify.js` is the notification engine (in-app list, WhatsApp delivery, batching, quiet hours). `src/ratings.js` holds the rating rules. `src/clock.js` is the shared clock, which tests can move forward.
 - `public/js/` holds the screens: `auth.js`, `supplier.js`, `buyer.js`, `chat.js`, `shared.js` and `admin.js`. `core.js` holds the router, shell, live polling and helpers.
 - `tests/unit`, `tests/integration` and `tests/e2e` hold the test suites; `tests/helpers/server.js` starts a throwaway server for them. `scripts/smoke-test.js` is the original API journey test. `scripts/reset.js` wipes the data. `scripts/backup.js` and `scripts/schedule-backup.ps1` handle backups.
 

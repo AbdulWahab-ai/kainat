@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { init } from './src/db.js';
-import { handleApi } from './src/api.js';
+import { handleApi, runJobs } from './src/api.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -35,6 +35,13 @@ const server = http.createServer(async (req, res) => {
     res.end('Server error');
   }
 });
+
+// Background jobs (matching waves, reminders, expiry, ratings, morning price check, batched WhatsApp) every minute.
+// Tests run them on demand instead, through the test hooks.
+if (process.env.TEST_HOOKS !== '1') {
+  setTimeout(() => runJobs(), 5000);
+  setInterval(() => runJobs(), 60000).unref();
+}
 
 server.listen(PORT, HOST, () => {
   console.log(`Kainat running at http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${server.address().port}`);

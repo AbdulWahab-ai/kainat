@@ -121,13 +121,32 @@ export function seed() {
         (o.status || 'delivered') === 'delivered' ? daysAgo(o.d) : null).lastInsertRowid);
       return id;
     };
-    order({ buyer: sunPeak, supplier: alNoor, model: 'Longi Hi-MO 6 580 W', qty: 40, price: 17800, d: 24 });
-    order({ buyer: sunPeak, supplier: alNoor, model: 'Growatt SPF 6000 ES Plus', qty: 2, price: 185000, d: 38 });
+    const o1 = order({ buyer: sunPeak, supplier: alNoor, model: 'Longi Hi-MO 6 580 W', qty: 40, price: 17800, d: 24 });
+    const o2 = order({ buyer: sunPeak, supplier: alNoor, model: 'Growatt SPF 6000 ES Plus', qty: 2, price: 185000, d: 38 });
     order({ buyer: sunPeak, supplier: alNoor, model: 'Pylontech US5000', qty: 4, price: 318000, d: 63 });
-    order({ buyer: sunPeak, supplier: sunCity, model: 'Inverex Nitrox 6 kW', qty: 1, price: 170000, d: 15 });
-    order({ buyer: greenRoof, supplier: sunCity, model: 'Longi Hi-MO 6 580 W', qty: 24, price: 18000, d: 20 });
-    order({ buyer: greenRoof, supplier: greenVolt, model: 'JA Solar JAM72S30 550 W', qty: 60, price: 15800, d: 33 });
-    order({ buyer: brightWorks, supplier: sunCity, model: 'Pylontech US3000C', qty: 2, price: 230000, d: 9 });
+    const o4 = order({ buyer: sunPeak, supplier: sunCity, model: 'Inverex Nitrox 6 kW', qty: 1, price: 170000, d: 15 });
+    const o5 = order({ buyer: greenRoof, supplier: sunCity, model: 'Longi Hi-MO 6 580 W', qty: 24, price: 18000, d: 20 });
+    const o6 = order({ buyer: greenRoof, supplier: greenVolt, model: 'JA Solar JAM72S30 550 W', qty: 60, price: 15800, d: 33 });
+    const o7 = order({ buyer: brightWorks, supplier: sunCity, model: 'Pylontech US3000C', qty: 2, price: 230000, d: 9 });
+
+    // Ratings on past deals: Sun City has three, so its score shows. SunPeak has not rated its latest Al-Noor deal yet,
+    // and Al-Noor's rating of it stays hidden until SunPeak rates (blind ratings).
+    const rate = (orderId, rater, ratee, role, stars, tags, comment, d, revealed = true, reply = null) => run(`INSERT INTO ratings (order_id, rater_id,
+      ratee_id, rater_role, stars, tags, comment, reply, reply_at, created_at, updated_at, revealed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    orderId, rater, ratee, role, stars, JSON.stringify(tags), comment, reply, reply ? daysAgo(d - 1) : null, daysAgo(d), daysAgo(d), revealed ? daysAgo(d - 1) : null);
+    rate(o2, sunPeak, alNoor, 'buyer', 5, ['Price as quoted', 'Genuine stock'], 'Original Growatt stock with warranty cards.', 37);
+    rate(o2, alNoor, sunPeak, 'supplier', 5, ['Paid token on time'], null, 37);
+    rate(o1, alNoor, sunPeak, 'supplier', 5, ['Paid token on time', 'Clear requirements'], null, 5, false);
+    rate(o4, sunPeak, sunCity, 'buyer', 5, ['On time', 'Responsive'], 'Delivered the same day, well packed.', 14);
+    rate(o4, sunCity, sunPeak, 'supplier', 5, ['Paid token on time'], null, 14);
+    rate(o5, greenRoof, sunCity, 'buyer', 4, ['Price as quoted'], 'Good price, but the delivery came a day late.', 19, true,
+      'Sorry about that. The truck was held at Thokar Niaz Baig; we now dispatch a day earlier for Johar Town.');
+    rate(o5, sunCity, greenRoof, 'supplier', 4, ['Easy to deal with'], null, 19);
+    rate(o6, greenRoof, greenVolt, 'buyer', 4, ['Genuine stock'], null, 32);
+    rate(o7, brightWorks, sunCity, 'buyer', 5, ['Genuine stock', 'On time'], null, 8);
+    rate(o7, sunCity, brightWorks, 'supplier', 4, ['Received promptly'], null, 8);
+    // Reminders for these old deals were already handled before ratings existed.
+    run("UPDATE orders SET rating_reminded_at = ? WHERE status = 'delivered'", t);
 
     // An order waiting for Al-Noor to confirm
     const pend = order({ buyer: greenRoof, supplier: alNoor, model: 'Longi Hi-MO 6 580 W', qty: 40, price: 17400,

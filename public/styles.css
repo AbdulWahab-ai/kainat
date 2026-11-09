@@ -36,6 +36,21 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .icon-btn { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent;
   border-radius: 10px; cursor: pointer; color: var(--ink); text-decoration: none; flex-shrink: 0; }
 .icon-btn:hover { background: var(--chip); }
+.icon-btn.bell { position: relative; }
+.icon-btn.bell .dot { position: absolute; top: 5px; right: 4px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px;
+  background: #C2410C; color: #fff; font-size: 10.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.card.notif { display: flex; flex-direction: row; gap: 10px; align-items: center; text-decoration: none; color: inherit; }
+.notif.unread { border-color: var(--brand); background: var(--brand-tint); }
+.notif .body { white-space: pre-line; font-size: 14px; }
+.stars { display: flex; gap: 4px; flex-direction: row-reverse; justify-content: flex-end; }
+.stars input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.stars label { font-size: 32px; line-height: 1; color: var(--line-2); cursor: pointer; padding: 2px; }
+.stars input:checked ~ label, .stars label:hover, .stars label:hover ~ label { color: var(--clay); }
+.stars input:focus-visible + label { outline: 2px solid var(--brand); border-radius: 4px; }
+.star-text { color: var(--clay, #D97757); letter-spacing: 1px; }
+.review { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; border-top: 1px solid var(--line); }
+.review:first-of-type { border-top: 0; }
+.review .reply { margin-left: 12px; padding-left: 10px; border-left: 3px solid var(--brand-tint); }
 main.content { flex: 1; padding: 14px 16px 24px; display: flex; flex-direction: column; gap: 12px; }
 .shell:not(.wide) main.content { padding-bottom: 96px; }
 

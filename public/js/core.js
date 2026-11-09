@@ -55,9 +55,11 @@ export async function api(method, path, body) {
 }
 
 let toastTimer;
+let toastSeq = 0;
 export function toast(msg, kind = '') {
   const t = $('#toast');
   t.textContent = msg;
+  t.dataset.seq = String(++toastSeq); // lets tests tell a new toast from one still showing
   t.className = 'toast' + (kind ? ' ' + kind : '');
   t.hidden = false;
   clearTimeout(toastTimer);
@@ -122,17 +124,31 @@ export const icons = {
   clip: ic('<path d="M14.5 9.5l-5.6 5.6a3.2 3.2 0 0 1-4.5-4.5l6.4-6.4a2.1 2.1 0 0 1 3 3l-6.3 6.3a1 1 0 0 1-1.5-1.5l5.5-5.5"/>', 20),
   bolt: ic('<path d="M11 2L4 11h5l-1 7 7-9h-5l1-7z"/>', 16),
   msg: ic('<path d="M3 5h14v9H8l-4 3v-3H3z"/>', 18),
+  bell: ic('<path d="M5 14V9a5 5 0 0 1 10 0v5l1.5 2h-13z"/><path d="M8.5 18a1.6 1.6 0 0 0 3 0"/>'),
 };
+
+// Stars as text, e.g. "★★★★☆".
+export const starText = (n) => '★'.repeat(n) + '☆'.repeat(5 - n);
+// Rating badge: the score from 3 ratings, a count before that, nothing with none.
+export function ratingBadge(r) {
+  if (!r || !r.count) return '';
+  if (r.avg !== null && r.avg !== undefined) return `<span class="badge brand" title="Average of the latest rating from each partner, last 12 months">★ ${r.avg.toFixed(1)} · ${r.count} rating${r.count === 1 ? '' : 's'}</span>`;
+  return `<span class="badge">New · ${r.count} rating${r.count === 1 ? '' : 's'}</span>`;
+}
 
 // ---------- shell ----------
 export function shell({ title, eyebrow = '', back = '', actions = '', body = '', nav = null, wide = false }) {
   const navHtml = nav ? `<nav class="bottomnav" style="--n:${nav.length}" aria-label="Main">${nav.map((n) =>
     `<a href="${n.href}" class="${n.active ? 'active' : ''}" ${n.active ? 'aria-current="page"' : ''}>${n.icon}${n.dot ? `<span class="dot">${n.dot}</span>` : ''}${esc(n.label)}</a>`).join('')}</nav>` : '';
+  // Signed-in buyers and suppliers get the notification bell on their main screens.
+  const n = state.counts?.notifications || 0;
+  const bell = nav && state.me?.role && !state.me.is_admin
+    ? `<a class="icon-btn bell" href="#/notifications" aria-label="Notifications${n ? `, ${n} unread` : ''}">${icons.bell}${n ? `<span class="dot">${n > 99 ? '99+' : n}</span>` : ''}</a>` : '';
   return `<div class="shell ${wide ? 'wide' : ''}">
     <header class="topbar">
       ${back ? `<a class="icon-btn" href="${back}" aria-label="Back">${icons.back}</a>` : ''}
       <div class="titles">${eyebrow ? `<span class="eyebrow">${esc(eyebrow)}</span>` : ''}<h1>${esc(title)}</h1></div>
-      ${actions}
+      ${actions}${bell}
     </header>
     <main class="content">${body}</main>
     ${navHtml}
@@ -194,6 +210,8 @@ export function bizBadges(s, { forBuyer = true } = {}) {
   if (s.with_you > 0) out.push(`<span class="badge green">${forBuyer ? 'You' : 'With you'}: ${s.with_you} deal${s.with_you > 1 ? 's' : ''}</span>`);
   else if (s.deals === 0) out.push(`<span class="badge amber">New · 0 deals</span>`);
   if (s.verified) out.push('<span class="badge blue">Verified</span>');
+  const rb = ratingBadge(s.rating);
+  if (rb) out.push(rb);
   return out.join(' ');
 }
 

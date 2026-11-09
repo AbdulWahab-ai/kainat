@@ -50,9 +50,18 @@ export async function login(page, who) {
 }
 
 export const text = (page) => page.locator('#app').innerText();
+// Waits for the next toast after the last one this page read, so a toast still on screen from an earlier
+// action is never mistaken for the new one. A full page load restarts the app's count.
 export async function toast(page) {
-  await page.waitForSelector('#toast:not([hidden])');
-  return page.locator('#toast').innerText();
+  const handle = await page.waitForFunction((last) => {
+    const t = document.querySelector('#toast');
+    const seq = Number(t?.dataset.seq || 0);
+    const fresh = performance.timeOrigin !== last.origin ? seq > 0 : seq > last.seq;
+    return t && !t.hidden && fresh ? { seq, origin: performance.timeOrigin, text: t.innerText } : null;
+  }, page._toast || { seq: 0, origin: 0 });
+  const v = await handle.jsonValue();
+  page._toast = { seq: v.seq, origin: v.origin };
+  return v.text;
 }
 
 // Fails the test if any script error happened on the page.

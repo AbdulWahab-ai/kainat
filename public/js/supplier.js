@@ -1,11 +1,12 @@
 // Supplier side: request inbox, quoting, shop, item editing.
 import { route, render, shell, navFor, api, esc, rs, num, ago, day, toast, state, run, $, $$, catLabel, modelName,
-  emptyState, statusBadge, refreshMe, freshness, icons, poll } from './core.js';
+  emptyState, statusBadge, refreshMe, freshness, icons, poll, ratingBadge } from './core.js';
 
 function buyerLine(b) {
   if (!b) return '';
-  return b.with_you > 0 ? `<span class="badge green">Traded ${b.with_you}×</span>`
+  const deals = b.with_you > 0 ? `<span class="badge green">Traded ${b.with_you}×</span>`
     : `<span class="badge">New buyer · ${b.deals} deal${b.deals === 1 ? '' : 's'}</span>`;
+  return `<span class="row wrap" style="gap:4px;justify-content:flex-end">${deals}${ratingBadge(b.rating)}</span>`;
 }
 
 route('/s/inbox', async ({ query, render }) => {

@@ -172,7 +172,8 @@ test('order messages and problem flags', async () => {
   await rejects(other.call('POST', `/api/orders/${id}/messages`, { body: 'hi' }), 403);
   await buyer.call('POST', `/api/orders/${id}/messages`, { body: '<script>alert(1)</script>' });
   await sunCity.call('POST', `/api/orders/${id}/messages`, { body: 'Noted' });
-  assert.match((await buyer.call('GET', '/api/whatsapp')).at(-1).body, /Noted/);
+  // An order message is a normal notification: in the app at once, on WhatsApp at once or in the next batch.
+  assert.match((await buyer.call('GET', '/api/notifications')).items[0].body, /Noted/);
   await rejects(buyer.call('POST', `/api/orders/${id}/flag`, {}), 400, /Describe/);
   await buyer.call('POST', `/api/orders/${id}/flag`, { note: 'Cracked unit' });
   const o = await buyer.call('GET', `/api/orders/${id}`);

@@ -28,13 +28,13 @@ after(async () => { await browser?.close(); await srv?.stop(); });
 const SCREENS = {
   anon: ['#/login'],
   buyer: () => ['#/b/search', '#/b/search?q=growatt&cat=inverter&instock=1&city=Lahore', `#/b/model/${ids.model}?city=Lahore`,
-    `#/b/model/${ids.model}?sort=deals`, `#/b/model/${ids.model}?sort=fast`, '#/b/supplier/2', '#/b/request/new', `#/b/request/new?model=${ids.model}`,
+    `#/b/model/${ids.model}?sort=deals`, `#/b/model/${ids.model}?sort=fast`, `#/b/model/${ids.model}?sort=rated`, '#/b/supplier/3', '#/notifications', '#/profile?tab=alerts', '#/b/supplier/2', '#/b/request/new', `#/b/request/new?model=${ids.model}`,
     `#/b/request/new?listing=${ids.listing}`, '#/b/requests', `#/b/request/${ids.request}`, `#/b/order/new?quote=${ids.quote}`,
     `#/b/order/new?listing=${ids.exactListing}`, '#/deals', '#/deals?tab=done', '#/deals?tab=closed', `#/order/${ids.order}`, '#/chats', `#/chat/${ids.chat}`,
     '#/whatsapp', '#/profile'],
   supplier: () => ['#/s/inbox', '#/s/inbox?tab=quoted', '#/s/inbox?tab=orders', `#/s/quote/${ids.sRequest}`, '#/s/shop', `#/s/listing/${ids.listing}`,
-    '#/s/add', '#/deals', `#/order/${ids.sOrder}`, '#/chats', '#/whatsapp', '#/profile'],
-  admin: ['#/a', '#/a/suppliers', '#/a/buyers', '#/a/suppliers/new', '#/a/requests', '#/a/orders', '#/a/orders?f=disputed', '#/a/models', '#/a/whatsapp', '#/profile'],
+    '#/s/add', '#/deals', `#/order/${ids.sOrder}`, '#/chats', '#/whatsapp', '#/profile', '#/notifications', '#/deals?tab=done', '#/order/1'],
+  admin: ['#/a', '#/a/suppliers', '#/a/buyers', '#/a/suppliers/new', '#/a/requests', '#/a/orders', '#/a/orders?f=disputed', '#/a/models', '#/a/ratings', '#/a/ratings?f=low', '#/a/notifications', '#/a/notifications?s=sent', '#/a/whatsapp', '#/order/4', '#/profile'],
 };
 
 async function checkAll(page, list, label) {

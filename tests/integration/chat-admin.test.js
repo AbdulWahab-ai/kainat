@@ -49,8 +49,11 @@ test('messages: validation, attachments, polling, unread counts and one WhatsApp
   const m1 = await buyer.call('POST', `/api/chats/${id}/messages`, { body: 'Datasheet attached', attachment: PDF, attachment_name: 'spec.pdf' });
   await buyer.call('POST', `/api/chats/${id}/messages`, { body: 'And a photo', attachment: PNG, attachment_name: 'roof.png' });
   await buyer.call('POST', `/api/chats/${id}/messages`, { body: 'Third message' });
-  const nudges = (await alNoor.call('GET', '/api/whatsapp')).slice(before).filter((m) => m.buttons?.includes('Open chat'));
-  assert.equal(nudges.length, 1, 'only the first unread message nudges WhatsApp');
+  // One nudge per batch of unread messages. It reaches WhatsApp at once, or in the next 15-minute batch if
+  // Al-Noor had another alert just before.
+  const nudges = (await alNoor.call('GET', '/api/notifications')).items.filter((n) => n.event === 'chat_message' && n.link === `#/chat/${id}`);
+  assert.equal(nudges.length, 1, 'only the first unread message nudges');
+  assert.ok((await alNoor.call('GET', '/api/whatsapp')).slice(before).filter((m) => m.buttons?.includes('Open chat')).length <= 1);
   assert.equal((await alNoor.me()).counts.unread_chats >= 1, true);
   const list = (await alNoor.call('GET', '/api/chats')).find((c) => c.id === id);
   assert.equal(list.unread, 3);

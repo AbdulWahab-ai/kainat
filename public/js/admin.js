@@ -1,7 +1,8 @@
 // Admin console: metrics, building supplier shops, verification, models, orders, WhatsApp log.
-import { route, render, api, esc, rs, num, ago, toast, run, $, $$, catLabel, typeLabel, modelName, statusBadge, ask, state } from './core.js';
+import { route, render, api, esc, rs, num, ago, toast, run, $, $$, catLabel, typeLabel, modelName, statusBadge, ask, state, starText } from './core.js';
 
-const TABS = [['', 'Overview'], ['suppliers', 'Suppliers'], ['buyers', 'Buyers'], ['requests', 'Requests'], ['orders', 'Orders'], ['models', 'Models'], ['whatsapp', 'WhatsApp log']];
+const TABS = [['', 'Overview'], ['suppliers', 'Suppliers'], ['buyers', 'Buyers'], ['requests', 'Requests'], ['orders', 'Orders'], ['models', 'Models'],
+  ['ratings', 'Ratings'], ['notifications', 'Notifications'], ['whatsapp', 'WhatsApp log']];
 
 function adminShell(active, title, body, actions = '') {
   return `<div class="shell wide">
@@ -22,7 +23,8 @@ route('/a', async ({ render }) => {
     </div>
     <div class="metrics">
       ${[['Suppliers', c.suppliers, `${c.unclaimed} not claimed yet`], ['Buyers', c.buyers, ''], ['Open requests', c.open_requests, ''],
-        ['Documents to check', c.docs_to_check, 'suppliers'], ['Models awaiting approval', c.pending_models, ''], ['Problems flagged', c.disputes, 'orders']]
+        ['Documents to check', c.docs_to_check, 'suppliers'], ['Models awaiting approval', c.pending_models, ''], ['Problems flagged', c.disputes, 'orders'],
+        ['Low ratings to review', c.low_ratings, '2 stars or less, last 30 days'], ['WhatsApp waiting', c.wa_waiting, 'batched or quiet hours']]
         .map(([l, v, s]) => `<div class="metric"><span class="small muted">${l}</span><span class="v">${v}</span><span class="tiny muted">${s}</span></div>`).join('')}
     </div>
     <h2>Success metrics</h2><p class="small muted">From the PRD. Review weekly.</p>
@@ -163,6 +165,39 @@ route('/a/models', async ({ render }) => {
     await api('POST', `/api/admin/models/${s.dataset.merge}/merge`, { into: s.value }); toast('Merged'); reload();
   }));
   $('#nm').onsubmit = (e) => { e.preventDefault(); run(e.submitter, async () => { await api('POST', '/api/models', Object.fromEntries(new FormData(e.target))); toast('Model added'); reload(); }); };
+}, { role: 'admin' });
+
+route('/a/ratings', async ({ query, render }) => {
+  const rows = await api('GET', `/api/admin/ratings${query.f === 'low' ? '?low=1' : ''}`);
+  render(adminShell('ratings', 'Ratings', `
+    <p class="small muted">Buyers and suppliers rate each other after a delivered order. Ratings stay hidden until both rate or 14 days pass. You can hide an abusive comment; the stars always count.</p>
+    <div class="chips"><a class="chip ${query.f ? '' : 'on'}" href="#/a/ratings">All</a><a class="chip ${query.f === 'low' ? 'on' : ''}" href="#/a/ratings?f=low">2 stars or less</a></div>
+    <div class="table-wrap"><table><thead><tr><th>Order</th><th>From</th><th>About</th><th>Stars</th><th>Tags</th><th>Comment</th><th>Shown</th><th></th></tr></thead><tbody>
+    ${rows.map((r) => `<tr><td><a href="#/order/${r.order_id}">${r.order_id}</a></td><td>${esc(r.rater_name)}<div class="tiny muted">${r.rater_role}</div></td><td>${esc(r.ratee_name)}</td>
+      <td class="nowrap"><span class="star-text">${starText(r.stars)}</span>${r.stars <= 2 ? ' <span class="badge red">Low</span>' : ''}</td><td class="small">${esc(r.tags.join(', '))}</td>
+      <td class="small" style="max-width:320px">${r.comment ? esc(r.comment) : '<span class="muted">none</span>'}${r.hidden ? ' <span class="badge">Hidden</span>' : ''}${r.reply ? `<div class="tiny muted">Reply: ${esc(r.reply)}</div>` : ''}</td>
+      <td>${r.revealed_at ? ago(r.revealed_at) : '<span class="badge amber">Blind</span>'}</td>
+      <td>${r.comment ? `<button type="button" class="btn small" data-hide="${r.id}" data-v="${r.hidden ? '0' : '1'}">${r.hidden ? 'Show comment' : 'Hide comment'}</button>` : ''}</td></tr>`).join('')
+      || '<tr><td colspan="8" class="muted">No ratings yet.</td></tr>'}
+    </tbody></table></div>`));
+  $$('[data-hide]').forEach((b) => b.onclick = () => run(b, async () => {
+    await api('POST', `/api/admin/ratings/${b.dataset.hide}/hide`, { hidden: b.dataset.v === '1' });
+    toast('Saved');
+    location.hash = `#/a/ratings${query.f ? '?f=' + query.f : ''}${query.f ? '&' : '?'}t=${Date.now()}`;
+  }));
+}, { role: 'admin' });
+
+route('/a/notifications', async ({ query, render }) => {
+  const d = await api('GET', `/api/admin/notifications${query.s ? '?status=' + encodeURIComponent(query.s) : ''}`);
+  const label = { sent: 'Sent', batched: 'In a batch', queued: 'Waiting (batch)', held: 'Waiting (quiet hours)', off: 'WhatsApp off', capped: 'Daily limit' };
+  render(adminShell('notifications', 'Notifications', `
+    <p class="small muted">Every alert, in the app and on WhatsApp. Urgent alerts go out at once. Others are batched every 15 minutes, wait for quiet hours to end, or are app-only when a business switched WhatsApp off. Last 7 days:</p>
+    <div class="chips"><a class="chip ${query.s ? '' : 'on'}" href="#/a/notifications">All</a>${Object.entries(label).map(([k, v]) => `<a class="chip ${query.s === k ? 'on' : ''}" href="#/a/notifications?s=${k}">${v} ${d.counts[k] || 0}</a>`).join('')}</div>
+    <div class="table-wrap"><table><thead><tr><th>When</th><th>Business</th><th>Event</th><th>Message</th><th>WhatsApp</th><th>Read in app</th></tr></thead><tbody>
+    ${d.rows.map((n) => `<tr><td class="nowrap">${ago(n.created_at)}</td><td>${esc(n.name)}</td><td class="small">${esc(n.event.replace(/_/g, ' '))}${n.priority === 'urgent' ? ' <span class="badge brand">urgent</span>' : ''}</td>
+      <td style="white-space:pre-line;max-width:460px" class="small">${esc(n.body)}</td><td class="small nowrap">${esc(label[n.wa_status] || n.wa_status)}${n.send_after && ['queued', 'held'].includes(n.wa_status) ? `<div class="tiny muted">at ${new Date(n.send_after).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>` : ''}</td>
+      <td>${n.read_at ? 'Yes' : 'No'}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">Nothing yet.</td></tr>'}
+    </tbody></table></div>`));
 }, { role: 'admin' });
 
 route('/a/whatsapp', async ({ render }) => {
