@@ -86,7 +86,7 @@ route('/signup/:role', async ({ params, render }) => {
     <form id="f" class="stack" style="gap:14px">
       <label class="field"><span class="flabel">${supplier ? 'Business name' : 'Company name'}</span><input name="name" required></label>
       ${supplier ? `<fieldset><legend>Business type</legend><div class="grid3">
-        ${['importer', 'distributor', 'wholesaler'].map((t, i) => `<label class="radio-card"><input type="radio" name="supplier_type" value="${t}" ${i === 2 ? 'checked' : ''}><span class="small strong">${t[0].toUpperCase() + t.slice(1)}</span></label>`).join('')}
+        ${['importer', 'distributor', 'wholesaler'].map((t, i) => `<label class="radio-card tight"><input type="radio" name="supplier_type" value="${t}" ${i === 2 ? 'checked' : ''}><span class="small strong">${t[0].toUpperCase() + t.slice(1)}</span></label>`).join('')}
       </div></fieldset>` : ''}
       <div class="grid2"><label class="field"><span class="flabel">City</span><input name="city" value="Lahore" required></label>
         ${supplier ? '<label class="field"><span class="flabel">Years in business</span><input name="years" type="number" min="0"></label>'

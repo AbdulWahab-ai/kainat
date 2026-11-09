@@ -134,6 +134,10 @@ input.otp { letter-spacing: .4em; text-align: center; font-size: 24px; font-weig
   background: var(--card); }
 .radio-card input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--brand); flex-shrink: 0; }
 .radio-card:has(input:checked) { border: 2px solid var(--brand); background: var(--brand-tint); padding: 11px; }
+/* Three choices side by side on a phone: radio above the label, and the label may wrap, so wide fonts never push the page sideways. */
+.radio-card.tight { flex-direction: column; align-items: center; text-align: center; gap: 6px; padding: 10px 6px; min-width: 0; }
+.radio-card.tight:has(input:checked) { padding: 9px 5px; }
+.radio-card.tight > span { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 fieldset { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 legend { font-size: 13px; font-weight: 600; margin-bottom: 8px; padding: 0; }
 

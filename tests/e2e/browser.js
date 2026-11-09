@@ -70,9 +70,16 @@ export function noErrors(page) {
 }
 
 // Fails if the page scrolls sideways at the current width.
+// Checks twice: with the page's own fonts, then with a deliberately wide font. Many Android phones and Linux
+// fall back to wider fonts than Windows, so a row that fits here can still push the page sideways there.
 export async function noHorizontalScroll(page, label = '') {
-  const { sw, iw } = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth }));
+  const measure = () => page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth }));
+  let { sw, iw } = await measure();
   assert.ok(sw <= iw + 1, `${label} scrolls sideways: ${sw} > ${iw}`);
+  const wide = await page.addStyleTag({ content: '#app, #app * { font-family: Verdana, "DejaVu Sans", sans-serif !important; }' });
+  ({ sw, iw } = await measure());
+  await wide.evaluate((el) => el.remove());
+  assert.ok(sw <= iw + 1, `${label} scrolls sideways with a wide font: ${sw} > ${iw}`);
 }
 
 // Every button and link needs a readable name, every image an alt attribute.

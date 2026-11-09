@@ -292,7 +292,7 @@ route('/b/order/new', async ({ query, render }) => {
     title: 'Confirm order', eyebrow: `from ${s.name}`, back: 'javascript:history.back()',
     body: `
       <section class="card"><div class="row between top"><span class="stack" style="gap:2px"><span class="strong">${esc(modelName(item.model))}</span>
-        <span class="small muted">${rs(item.price)} per ${esc(item.model?.unit || 'unit')} · ${num(item.qty_max)} available · ${item.lead_days ? item.lead_days + ' day(s)' : 'same day'}</span></span>${bizBadges(s)}</div>
+        <span class="small muted">${rs(item.price)} per ${esc(item.model?.unit || 'unit')} · ${num(item.qty_max)} available · ${item.lead_days ? item.lead_days + ' day(s)' : 'same day'}</span></span><span class="row wrap" style="justify-content:flex-end;gap:4px;min-width:0">${bizBadges(s)}</span></div>
         ${s.deals === 0 ? '<div class="card warn small">This supplier has no completed deals on the app yet. Check their documents and stock before paying token money.</div>' : ''}</section>
       <form id="f" class="stack" style="gap:14px">
         <label class="field"><span class="flabel">Quantity${item.min > 1 ? ` (minimum ${item.min})` : ''}</span><input name="qty" type="number" min="${item.min}" max="${item.qty_max}" value="${item.default_qty}" required></label>
