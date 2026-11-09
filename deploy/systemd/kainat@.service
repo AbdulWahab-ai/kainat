@@ -1,0 +1,30 @@
+[Unit]
+Description=Kainat (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kainat
+Group=kainat
+EnvironmentFile=/etc/kainat/%i.env
+WorkingDirectory=/srv/kainat/%i/app
+ExecStart=/opt/node/bin/node --disable-warning=ExperimentalWarning server.js
+Restart=always
+RestartSec=3
+# Locked down: the app can write only to its own data folder.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/srv/kainat/%i/data
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target

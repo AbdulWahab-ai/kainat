@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly Kainat backup (%i)
+
+[Timer]
+# 03:30 server time; a run missed while the server was off happens at the next start.
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

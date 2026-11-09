@@ -1,0 +1,15 @@
+[Unit]
+Description=Kainat backup (%i)
+
+[Service]
+Type=oneshot
+User=kainat
+Group=kainat
+EnvironmentFile=/etc/kainat/%i.env
+WorkingDirectory=/srv/kainat/%i/app
+ExecStart=/opt/node/bin/node --disable-warning=ExperimentalWarning scripts/backup.js
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/srv/kainat/%i/data /srv/kainat/%i/backups

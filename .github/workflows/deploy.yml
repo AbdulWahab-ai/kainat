@@ -1,0 +1,65 @@
+# Puts Kainat on the Contabo server.
+#   staging:    every push to main, once CI has passed on it
+#   production: a published release (tag v1.2.3), after approval on the "production" environment
+# The server key in STAGING_SSH_KEY / PRODUCTION_SSH_KEY can only run the deploy command (see deploy/README.md).
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      instance:
+        description: staging or production
+        required: true
+        default: staging
+      tag:
+        description: Release tag (required for production), e.g. v1.0.0
+        required: false
+
+concurrency:
+  group: deploy-${{ github.event_name == 'release' && 'production' || inputs.instance || 'staging' }}
+  cancel-in-progress: false
+
+jobs:
+  staging:
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') ||
+      (github.event_name == 'workflow_dispatch' && inputs.instance == 'staging')
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Deploy main to staging
+        env:
+          KEY: ${{ secrets.STAGING_SSH_KEY }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes root@"$HOST" kainat-deploy staging
+
+  production:
+    if: >-
+      github.event_name == 'release' ||
+      (github.event_name == 'workflow_dispatch' && inputs.instance == 'production')
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy the release to production
+        env:
+          KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "A release tag like v1.0.0 is required"; exit 1; }
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes root@"$HOST" kainat-deploy production "$TAG"
