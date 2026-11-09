@@ -284,6 +284,8 @@ describe('matching waves and scheduled jobs', () => {
 
   test('the morning price check runs once a day from 8 am Pakistan time, only for suppliers who have not confirmed', async () => {
     await srv.setClock('2026-12-10T02:30:00Z'); // 07:30 in Pakistan
+    // The clock jumped weeks ahead, past the 30-day session limit: sign in again.
+    await Promise.all([buyer, smallBuyer, alNoor, sunCity, greenVolt, admin].map((c) => c.relogin()));
     assert.equal((await srv.tick(['priceCheck'])).priceCheck, 0);
     await srv.setClock('2026-12-10T03:05:00Z'); // 08:05
     await alNoor.call('POST', '/api/listings/confirm-all'); // Al-Noor confirmed already today

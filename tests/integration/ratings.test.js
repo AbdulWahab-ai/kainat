@@ -121,6 +121,8 @@ test('rating closes 30 days after delivery, and each side is reminded once after
   assert.equal((await notes(greenRoof)).filter((n) => n.event === 'rate_reminder' && n.link === `#/order/${id}`).length, 1);
   assert.equal((await notes(sunCity)).filter((n) => n.event === 'rate_reminder' && n.link === `#/order/${id}`).length, 1);
   await srv.advance(27 * 24 * 60 + 1);
+  // Clients unused for 30 days on the moved clock are signed out by the session limit: sign them in again.
+  await Promise.all([buyer, greenRoof, alNoor, sunCity, greenVolt, admin].map((c) => c.relogin()));
   await rejects(rate(greenRoof, id, { stars: 5 }), 409, /30 days/);
   const v = (await greenRoof.call('GET', `/api/orders/${id}`)).rating;
   assert.equal(v.window_open, false);

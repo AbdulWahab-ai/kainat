@@ -397,7 +397,9 @@ function phoneIn(text) {
   return (t.match(PHONE_RUN) || []).some((run) => isPhoneDigits(run.replace(/\D/g, '')));
 }
 function maskPhones(text) {
-  return esc(toLatin(text)).replace(PHONE_RUN, (run) => (isPhoneDigits(run.replace(/\D/g, '')) ? '<span class="masked" aria-label="hidden number">•••• •••••••</span>' : run)).replace(/(?:https?:\/\/)?(?:wa\.me|api\.whatsapp\.com|chat\.whatsapp\.com)\/\S*/gi, '<span class="masked" aria-label="hidden link">link hidden</span>');
+  // Links first: a WhatsApp link contains a number, and hiding the number first would break the link's markup.
+  return esc(toLatin(text)).replace(/(?:https?:\/\/)?(?:wa\.me|api\.whatsapp\.com|chat\.whatsapp\.com)\/\S*/gi, '<span class="masked" aria-label="hidden link">link hidden</span>')
+    .replace(PHONE_RUN, (run) => (isPhoneDigits(run.replace(/\D/g, '')) ? '<span class="masked" aria-label="hidden number">•••• •••••••</span>' : run));
 }
 const PARTNER = {
   buyer: { name: 'Al-Noor Solar Imports', short: 'Al-Noor', initials: 'AN', order: '#9', meta: '★ 4.8 · Importer', reply: 'Ji, noted. Anything else for the delivery?' },

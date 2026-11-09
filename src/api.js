@@ -6,11 +6,33 @@ import { all, get, run, now, tx, UPLOAD_DIR } from './db.js';
 import { nowMs, setClock, MIN, HOUR, DAY, pktHour, pktDate } from './clock.js';
 import * as N from './notify.js';
 import * as R from './ratings.js';
+import * as SMS from './sms.js';
+import { phoneIn, maskPhones } from '../public/js/phone.js';
 
 class HttpError extends Error {
-  constructor(status, message) { super(message); this.status = status; }
+  constructor(status, message, extra = null) { super(message); this.status = status; this.extra = extra; }
 }
-const fail = (status, message) => { throw new HttpError(status, message); };
+const fail = (status, message, extra) => { throw new HttpError(status, message, extra); };
+
+// ---------- phone numbers stay on Kainat ----------
+// Anything the other side reads is checked for phone numbers and WhatsApp links. A number is refused (422, code
+// "phone_number") so the screen can warn the sender; if they then choose "send without the number", it goes with
+// the number replaced. Every attempt is recorded (never the number itself) and counts against a supplier's ranking.
+export const contactAttempts = (bizId, days = 30) =>
+  get('SELECT COUNT(*) n FROM contact_attempts WHERE business_id = ? AND sent_masked = 0 AND at > ?', bizId, new Date(nowMs() - days * DAY).toISOString()).n;
+function guardContact(me, text, place, { mask = false, refId = null } = {}) {
+  if (!text || !phoneIn(text)) return { text, masked: false };
+  run('INSERT INTO contact_attempts (business_id, place, ref_id, sent_masked, at) VALUES (?,?,?,?,?)', me.id, place, refId, mask ? 1 : 0, now());
+  if (!mask) fail(422, 'Phone numbers can’t be shared on Kainat.', { code: 'phone_number', attempts: contactAttempts(me.id), role: me.role });
+  return { text: maskPhones(text), masked: true };
+}
+// Business details everyone can see: refused outright, there is nothing to "send without".
+function guardProfile(me, fields) {
+  if (!Object.values(fields).some((v) => v && phoneIn(String(v)))) return;
+  if (me?.id) run('INSERT INTO contact_attempts (business_id, place, sent_masked, at) VALUES (?,?,?,?)', me.id, 'profile', 0, now());
+  fail(400, 'Phone numbers can’t go in your business details. Your number is already on your account, and buyers and suppliers reach you through Kainat.');
+}
+const wantsMask = (body) => body.mask === true || body.mask === 1 || body.mask === '1';
 
 // ---------- helpers ----------
 export function normPhone(p) {
@@ -63,13 +85,29 @@ function waSend(businessId, body, buttons = null, context = null) {
 const notify = N.notify;
 
 // ---------- uploads ----------
+// What a file really is, from its first bytes. The declared type is not trusted: a script renamed to .png is refused.
+export function sniffType(buf) {
+  if (buf.length >= 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))) return 'png';
+  if (buf.length >= 3 && buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return 'jpg';
+  if (buf.length >= 12 && buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP') return 'webp';
+  if (buf.length >= 5 && buf.toString('latin1', 0, 5) === '%PDF-') return 'pdf';
+  return null;
+}
+// Decodes a data: URL and checks size and real file type. Returns { buf, ext } or fails with a clear message.
+function readUpload(dataUrl, what) {
+  const m = /^data:(image\/(png|jpeg|jpg|webp)|application\/pdf);base64,(.+)$/s.exec(dataUrl);
+  if (!m) fail(400, `${what} must be an image (PNG, JPG, WebP) or a PDF`);
+  const buf = Buffer.from(m[3], 'base64');
+  if (buf.length > 6 * 1024 * 1024) fail(400, `${what} is larger than 6 MB`);
+  const declared = m[1] === 'application/pdf' ? 'pdf' : m[2] === 'jpeg' ? 'jpg' : m[2];
+  const real = sniffType(buf);
+  if (!real) fail(400, `${what} is not a real image or PDF. Take a new screenshot and try again.`);
+  if (real !== declared && !(declared === 'jpg' && real === 'jpg')) fail(400, `${what} is a ${real.toUpperCase()} file named as ${declared.toUpperCase()}. Send the original file.`);
+  return { buf, ext: real };
+}
 function saveUpload(prefix, dataUrl) {
   if (!dataUrl) return null;
-  const m = /^data:(image\/(png|jpeg|jpg|webp)|application\/pdf);base64,(.+)$/s.exec(dataUrl);
-  if (!m) fail(400, 'Attach an image (PNG, JPG, WebP) or a PDF');
-  const buf = Buffer.from(m[3], 'base64');
-  if (buf.length > 6 * 1024 * 1024) fail(400, 'Attachment is larger than 6 MB');
-  const ext = m[1] === 'application/pdf' ? 'pdf' : m[2] === 'jpeg' ? 'jpg' : m[2];
+  const { buf, ext } = readUpload(dataUrl, 'Attachment');
   const file = `${prefix}-${crypto.randomBytes(6).toString('hex')}.${ext}`;
   fs.writeFileSync(path.join(UPLOAD_DIR, file), buf);
   return file;
@@ -162,7 +200,10 @@ function publicBiz(b, viewer) {
   const canContact = viewer && (viewer.is_admin || viewer.id === b.id || out.with_you > 0 ||
     get(`SELECT COUNT(*) n FROM orders WHERE ((buyer_id = ? AND supplier_id = ?) OR (buyer_id = ? AND supplier_id = ?)) AND status <> 'cancelled'`,
       viewer.id, b.id, b.id, viewer.id).n > 0);
-  if (canContact) Object.assign(out, { phone: b.phone, whatsapp: b.whatsapp, address: b.address, ntn: b.ntn });
+  // Phone numbers are never shown to other businesses, not even after an order: contact stays on Kainat.
+  // The business itself and the Kainat team still see it.
+  if (canContact) Object.assign(out, { address: b.address ? maskPhones(b.address) : b.address, ntn: b.ntn });
+  if (viewer && (viewer.is_admin || viewer.id === b.id)) Object.assign(out, { phone: b.phone, whatsapp: b.whatsapp });
   if (b.role === 'buyer' || b.role === 'supplier') {
     out.rating = R.summary(b.id);
     if (viewer?.id && viewer.id !== b.id) out.my_last_rating = R.lastGiven(viewer.id, b.id);
@@ -218,6 +259,8 @@ function supplierScore(s, buyerId, inStock) {
   if (get('SELECT 1 x FROM listings WHERE supplier_id = ? AND visible = 1 AND confirmed_at > ?', s.id, new Date(nowMs() - 2 * DAY).toISOString())) score += 10;
   const rating = R.summary(s.id).avg;
   if (rating !== null) score += (rating - 3) * 5;
+  // Trying to take buyers off Kainat by sharing numbers lowers where a supplier appears.
+  score -= Math.min(30, contactAttempts(s.id) * 10);
   return score;
 }
 
@@ -374,6 +417,7 @@ function saveQuote(me, r, b) {
   const visibility = b.visibility === 'exact' ? 'exact' : 'band';
   const share = b.share === false || b.share === 0 || b.share === '0' ? 0 : 1;
   const channel = b.channel === 'whatsapp' ? 'whatsapp' : 'app';
+  const note = guardContact(me, str(b.note), 'quote', { mask: wantsMask(b), refId: r.id }).text;
   const t = now();
   const existing = get('SELECT id, price FROM quotes WHERE request_id = ? AND supplier_id = ?', r.id, me.id);
   const prevLowest = get("SELECT MIN(price) p, supplier_id s FROM quotes WHERE request_id = ? AND supplier_id <> ? AND status = 'active'", r.id, me.id);
@@ -381,12 +425,12 @@ function saveQuote(me, r, b) {
   if (existing) {
     run(`UPDATE quotes SET model_id = ?, price = ?, qty = ?, token_pct = ?, lead_days = ?, channel = ?, share = ?, visibility = ?,
       note = ?, status = 'active', created_at = ? WHERE id = ?`, model_id, price, qty, token_pct, lead_days, channel, share, visibility,
-      str(b.note), t, existing.id);
+      note, t, existing.id);
     id = existing.id;
   } else {
     id = Number(run(`INSERT INTO quotes (request_id, supplier_id, model_id, price, qty, token_pct, lead_days, channel, share, visibility,
       note, status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, r.id, me.id, model_id, price, qty, token_pct, lead_days, channel,
-      share, visibility, str(b.note), 'active', t).lastInsertRowid);
+      share, visibility, note, 'active', t).lastInsertRowid);
   }
   run("UPDATE request_targets SET status = 'quoted' WHERE request_id = ? AND supplier_id = ?", r.id, me.id);
   const q = get('SELECT * FROM quotes WHERE id = ?', id);
@@ -459,11 +503,7 @@ function mustOrder(id, me) {
 
 function saveProof(orderId, dataUrl) {
   if (!dataUrl) return null;
-  const m = /^data:(image\/(png|jpeg|jpg|webp)|application\/pdf);base64,(.+)$/s.exec(dataUrl);
-  if (!m) fail(400, 'Token proof must be an image or PDF');
-  const buf = Buffer.from(m[3], 'base64');
-  if (buf.length > 6 * 1024 * 1024) fail(400, 'Token proof is larger than 6 MB');
-  const ext = m[1] === 'application/pdf' ? 'pdf' : m[2] === 'jpeg' ? 'jpg' : m[2];
+  const { buf, ext } = readUpload(dataUrl, 'Token proof');
   const file = `order-${orderId}-${crypto.randomBytes(6).toString('hex')}.${ext}`;
   fs.writeFileSync(path.join(UPLOAD_DIR, file), buf);
   return file;
@@ -471,9 +511,11 @@ function saveProof(orderId, dataUrl) {
 
 function createOrder(me, b) {
   const qty = int(b.qty);
-  const address = str(b.address, 300);
   if (!qty || qty <= 0) fail(400, 'Enter a quantity');
-  if (!address) fail(400, 'Enter a delivery address');
+  if (!str(b.address, 300)) fail(400, 'Enter a delivery address');
+  // The supplier reads the address and note: no phone numbers (a site contact is reached through Kainat too).
+  const address = guardContact(me, str(b.address, 300), 'order_note', { mask: wantsMask(b) }).text;
+  const orderNote = guardContact(me, str(b.note, 500), 'order_note', { mask: wantsMask(b) }).text;
   let supplierId, modelId, price, token, listingId = null, quoteId = null;
   if (b.quote_id) {
     const q = get('SELECT * FROM quotes WHERE id = ?', int(b.quote_id));
@@ -501,7 +543,7 @@ function createOrder(me, b) {
 
   const id = Number(run(`INSERT INTO orders (buyer_id, supplier_id, model_id, listing_id, quote_id, qty, price, token_pct, address, needed_by,
     note, status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, me.id, supplierId, modelId, listingId, quoteId, qty, price, token,
-    address, str(b.needed_by, 20), str(b.note, 500), 'pending', now()).lastInsertRowid);
+    address, str(b.needed_by, 20), orderNote, 'pending', now()).lastInsertRowid);
   const proof = saveProof(id, b.token_proof);
   if (proof) run('UPDATE orders SET token_proof = ? WHERE id = ?', proof, id);
   if (b.save_address) {
@@ -526,9 +568,12 @@ function acceptOrder(o, me) {
 function declineOrder(o, me, reason) {
   if (o.supplier_id !== me.id) fail(403, 'Only the supplier can decline');
   if (o.status !== 'pending') fail(409, `Order is already ${o.status}`);
-  run("UPDATE orders SET status = 'declined', decline_reason = ? WHERE id = ?", str(reason) || 'No reason given', o.id);
+  // The buyer reads the reason: a phone number in it is hidden.
+  const why = str(reason) ? maskPhones(str(reason)) : null;
+  if (why && why !== str(reason)) run('INSERT INTO contact_attempts (business_id, place, ref_id, sent_masked, at) VALUES (?,?,?,?,?)', me.id, 'order_message', o.id, 0, now());
+  run("UPDATE orders SET status = 'declined', decline_reason = ? WHERE id = ?", why || 'No reason given', o.id);
   const reopened = reopenRequestFor(o, { keepChosen: false });
-  notify(o.buyer_id, 'order_update', { body: `${me.name} declined order #${o.id}: ${str(reason) || 'no reason given'}.${reopened ? ' Your request is open again for other bids.' : ''}`,
+  notify(o.buyer_id, 'order_update', { body: `${me.name} declined order #${o.id}: ${why || 'no reason given'}.${reopened ? ' Your request is open again for other bids.' : ''}`,
     buttons: ['Open order'], context: { type: 'order', order_id: o.id } });
 }
 
@@ -582,14 +627,31 @@ const json = (res, status, data, headers = {}) => {
   res.end(JSON.stringify(data));
 };
 
+// Sessions end after 30 days without use, and after 90 days whatever happens.
+export const SESSION_IDLE_MS = 30 * DAY;
+export const SESSION_MAX_MS = 90 * DAY;
 function sessionFrom(req) {
   const m = /(?:^|;\s*)sid=([a-f0-9]{48})/.exec(req.headers.cookie || '');
   if (!m) return null;
   const s = get('SELECT * FROM sessions WHERE token = ?', m[1]);
   if (!s) return null;
+  const t = nowMs();
+  if (t - Date.parse(s.last_seen || s.created_at) > SESSION_IDLE_MS || t - Date.parse(s.created_at) > SESSION_MAX_MS) {
+    run('DELETE FROM sessions WHERE token = ?', s.token);
+    return null;
+  }
+  if (!s.last_seen || t - Date.parse(s.last_seen) > HOUR) run('UPDATE sessions SET last_seen = ? WHERE token = ?', now(), s.token);
   const biz = s.business_id ? get('SELECT * FROM businesses WHERE id = ?', s.business_id) : null;
   return { session: s, me: biz || { id: null, phone: s.phone, role: null } };
 }
+
+// HTTPS is detected from the connection, or from the proxy in front of the server when TRUST_PROXY=1.
+const isHttps = (req) => !!req.socket?.encrypted || (process.env.TRUST_PROXY === '1' && String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https');
+function setSessionCookie(req, res, token, maxAgeSec) {
+  const secure = isHttps(req) || process.env.COOKIE_SECURE === '1';
+  res.setHeader('Set-Cookie', `sid=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAgeSec}${secure ? '; Secure' : ''}`);
+}
+const clientIp = (req) => (process.env.TRUST_PROXY === '1' && String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()) || req.socket?.remoteAddress || 'unknown';
 
 export async function handleApi(req, res, url) {
   const r = routes.find((x) => x.method === req.method && x.re.test(url.pathname));
@@ -613,39 +675,86 @@ export async function handleApi(req, res, url) {
     const out = await r.fn({ req, res, params, body, query, me, session: auth?.session });
     if (!res.headersSent) json(res, 200, out === undefined ? { ok: true } : out);
   } catch (e) {
-    if (e instanceof HttpError || e instanceof R.RatingError) return json(res, e.status, { error: e.message });
+    if (e instanceof HttpError || e instanceof R.RatingError) return json(res, e.status, { error: e.message, ...(e.extra || {}) });
     console.error(e);
     json(res, 500, { error: 'Something went wrong on the server' });
   }
 }
 
 // ---------- auth & onboarding ----------
-route('POST', '/api/auth/start', 'public', ({ body }) => {
+// Sign-in code limits. The defaults suit production; tests and the demo can raise them with these variables.
+const limit = (name, def) => { const v = Number(process.env[name]); return Number.isFinite(v) && process.env[name] !== '' && process.env[name] !== undefined ? v : def; };
+export const OTP_TTL_MS = 10 * MIN;
+export const OTP_MAX_ATTEMPTS = 5;
+const otpPerPhoneHour = () => limit('OTP_MAX_PER_HOUR', 6);
+const otpPerIpHour = () => limit('OTP_MAX_PER_IP_HOUR', 30);
+const otpGapSec = () => limit('OTP_MIN_GAP_SEC', 30);
+
+route('GET', '/api/config', 'public', () => ({ demo: SMS.devCodes() }));
+
+route('POST', '/api/auth/start', 'public', async ({ body, req }) => {
   const phone = normPhone(body.phone);
   if (!/^03\d{9}$/.test(phone)) fail(400, 'Enter a Pakistani mobile number like 0300 1234567');
-  const code = String(crypto.randomInt(100000, 999999));
-  run('INSERT INTO otps (phone, code, at) VALUES (?,?,?) ON CONFLICT(phone) DO UPDATE SET code = excluded.code, at = excluded.at', phone, code, now());
-  // Local demo: no SMS or WhatsApp provider, so the code is returned for the screen to show.
-  return { phone, devCode: code, channel: body.channel === 'sms' ? 'sms' : 'whatsapp' };
+  const channel = body.channel === 'sms' ? 'sms' : 'whatsapp';
+  const ip = clientIp(req);
+  const t = nowMs();
+  const hourAgo = new Date(t - HOUR).toISOString();
+  const last = get('SELECT MAX(at) at FROM otp_requests WHERE phone = ?', phone).at;
+  if (last && t - Date.parse(last) < otpGapSec() * 1000) {
+    fail(429, `Wait ${Math.ceil(otpGapSec() - (t - Date.parse(last)) / 1000)} seconds before asking for another code.`);
+  }
+  if (get('SELECT COUNT(*) n FROM otp_requests WHERE phone = ? AND at > ?', phone, hourAgo).n >= otpPerPhoneHour()) {
+    const first = get('SELECT MIN(at) at FROM otp_requests WHERE phone = ? AND at > ?', phone, hourAgo).at;
+    fail(429, `Too many codes for this number. Try again in ${Math.max(1, Math.ceil((Date.parse(first) + HOUR - t) / MIN))} minutes.`);
+  }
+  if (get('SELECT COUNT(*) n FROM otp_requests WHERE ip = ? AND at > ?', ip, hourAgo).n >= otpPerIpHour()) {
+    fail(429, 'Too many codes requested from this network. Try again later.');
+  }
+  const code = String(crypto.randomInt(100000, 1000000));
+  try {
+    await SMS.sendCode(phone, code, channel);
+  } catch (e) {
+    if (e instanceof SMS.CodeDeliveryError) fail(503, e.message);
+    throw e;
+  }
+  run('INSERT INTO otp_requests (phone, ip, at) VALUES (?,?,?)', phone, ip, now());
+  run(`INSERT INTO otps (phone, code, at, attempts) VALUES (?,?,?,0)
+    ON CONFLICT(phone) DO UPDATE SET code = excluded.code, at = excluded.at, attempts = 0`, phone, code, now());
+  // Development only: there is no SMS gateway, so the screen shows the code. Never in production.
+  return SMS.devCodes() ? { phone, channel, devCode: code } : { phone, channel };
 });
 
-route('POST', '/api/auth/verify', 'public', ({ body, res }) => {
+route('POST', '/api/auth/verify', 'public', ({ body, req, res }) => {
   const phone = normPhone(body.phone);
   const otp = get('SELECT * FROM otps WHERE phone = ?', phone);
-  if (!otp || otp.code !== String(body.code || '').trim()) fail(400, 'That code is not right. Check it and try again.');
-  if (nowMs() - Date.parse(otp.at) > 10 * 60000) fail(400, 'That code has expired. Ask for a new one.');
+  if (!otp) fail(400, 'That code is not right. Ask for a new one.');
+  if (nowMs() - Date.parse(otp.at) > OTP_TTL_MS) { run('DELETE FROM otps WHERE phone = ?', phone); fail(400, 'That code has expired. Ask for a new one.'); }
+  if (!crypto.timingSafeEqual(Buffer.from(otp.code.padEnd(8)), Buffer.from(String(body.code || '').trim().slice(0, 8).padEnd(8)))) {
+    const used = otp.attempts + 1;
+    if (used >= OTP_MAX_ATTEMPTS) { run('DELETE FROM otps WHERE phone = ?', phone); fail(400, 'Too many wrong codes. Ask for a new one.'); }
+    run('UPDATE otps SET attempts = ? WHERE phone = ?', used, phone);
+    const left = OTP_MAX_ATTEMPTS - used;
+    fail(400, `That code is not right. ${left} ${left === 1 ? 'try' : 'tries'} left.`);
+  }
   run('DELETE FROM otps WHERE phone = ?', phone);
   const biz = get('SELECT * FROM businesses WHERE phone = ?', phone);
   const token = crypto.randomBytes(24).toString('hex');
-  run('INSERT INTO sessions (token, phone, business_id, created_at) VALUES (?,?,?,?)', token, phone, biz?.id || null, now());
-  res.setHeader('Set-Cookie', `sid=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000`);
+  run('INSERT INTO sessions (token, phone, business_id, created_at, last_seen) VALUES (?,?,?,?,?)', token, phone, biz?.id || null, now(), now());
+  setSessionCookie(req, res, token, SESSION_IDLE_MS / 1000);
   return { ok: true };
 });
 
-route('POST', '/api/auth/logout', 'any', ({ session, res }) => {
+route('POST', '/api/auth/logout', 'any', ({ session, req, res }) => {
   if (session) run('DELETE FROM sessions WHERE token = ?', session.token);
-  res.setHeader('Set-Cookie', 'sid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
+  setSessionCookie(req, res, '', 0);
   return { ok: true };
+});
+
+// Sign out everywhere: ends every session for this number, including on other phones.
+route('POST', '/api/auth/logout-all', 'any', ({ session, req, res }) => {
+  const n = Number(run('DELETE FROM sessions WHERE phone = ?', session.phone).changes);
+  setSessionCookie(req, res, '', 0);
+  return { ended: n };
 });
 
 route('GET', '/api/me', 'public', ({ me }) => {
@@ -684,6 +793,7 @@ route('POST', '/api/onboard', 'any', ({ me, session, body }) => {
   const city = str(body.city, 60);
   if (!name) fail(400, 'Enter your business name');
   if (!city) fail(400, 'Enter your city');
+  guardProfile(null, { name, address: body.address, contact: body.contact, buys: body.buys, delivery_cities: body.delivery_cities });
   const id = Number(run(`INSERT INTO businesses (role, supplier_type, name, city, address, contact, phone, whatsapp, ntn, years, installs, buys,
     delivery_cities, verified, docs_status, setup_by, claimed, status, is_admin, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     role, role === 'supplier' ? (['importer', 'distributor', 'wholesaler'].includes(body.supplier_type) ? body.supplier_type : 'wholesaler') : null,
@@ -711,6 +821,7 @@ route('PUT', '/api/me', 'user', ({ me, body }) => {
     ntn: str(body.ntn, 40), years: int(body.years), installs: str(body.installs, 40), buys: str(body.buys, 200),
     delivery_cities: str(body.delivery_cities, 200), supplier_type: ['importer', 'distributor', 'wholesaler'].includes(body.supplier_type) ? body.supplier_type : me.supplier_type,
   };
+  guardProfile(me, { name: f.name, city: f.city, address: f.address, contact: f.contact, buys: f.buys, delivery_cities: f.delivery_cities });
   run(`UPDATE businesses SET name = ?, city = ?, address = ?, contact = ?, ntn = ?, years = ?, installs = ?, buys = ?, delivery_cities = ?,
     supplier_type = ?, docs_status = CASE WHEN docs_status = 'pending' AND ? IS NOT NULL THEN 'received' ELSE docs_status END WHERE id = ?`,
     f.name, f.city, f.address, f.contact, f.ntn, f.years, f.installs, f.buys, f.delivery_cities, f.supplier_type, f.ntn, me.id);
@@ -828,7 +939,7 @@ route('POST', '/api/requests', 'buyer', ({ me, body }) => {
   }
   const category = model?.category || (['panel', 'inverter', 'battery', 'structure', 'cable', 'accessory'].includes(body.category) ? body.category : null);
   if (!category) fail(400, 'Pick a model or a category');
-  const description = str(body.description, 200);
+  const description = guardContact(me, str(body.description, 200), 'request', { mask: wantsMask(body) }).text;
   if (!model && !description) fail(400, 'Describe what you need, for example "5 kWh lithium battery"');
   const qty = int(body.qty);
   if (!qty || qty <= 0) fail(400, 'Enter a quantity');
@@ -1013,15 +1124,18 @@ route('GET', '/api/chats/:id', 'user', ({ me, params, query }) => {
 route('POST', '/api/chats/:id/messages', 'user', ({ me, params, body }) => {
   const c = mustConv(params.id, me);
   if (c.buyer_id !== me.id && c.supplier_id !== me.id) fail(403, 'Only the two businesses can write in this chat');
-  const text = str(body.body, 2000);
-  if (!text && !body.attachment) fail(400, 'Type a message or attach a file');
+  const raw = str(body.body, 2000);
+  if (!raw && !body.attachment) fail(400, 'Type a message or attach a file');
+  const { text, masked } = guardContact(me, raw, 'chat', { mask: wantsMask(body), refId: c.id });
   return tx(() => {
     const id = postChat(c, me, 'text', text || '', null, null);
     if (body.attachment) {
       const file = saveUpload(`chat-${c.id}-${id}`, body.attachment);
-      run('UPDATE chat_messages SET attachment = ?, attachment_name = ? WHERE id = ?', file, str(body.attachment_name, 120) || 'attachment', id);
+      run('UPDATE chat_messages SET attachment = ?, attachment_name = ? WHERE id = ?', file, maskPhones(str(body.attachment_name, 120) || 'attachment'), id);
     }
-    return { id };
+    // Both sides see why part of the message is missing.
+    if (masked) postChat(c, null, 'system', 'A phone number was removed from this message. Keep contact on Kainat so the order stays protected.');
+    return { id, masked };
   });
 });
 
@@ -1143,13 +1257,16 @@ route('POST', '/api/orders/:id/flag', 'user', ({ me, params, body }) => {
   const o = mustOrder(params.id, me);
   const note = str(body.note, 500) || fail(400, 'Describe the problem');
   run('UPDATE orders SET disputed = 1, dispute_note = ? WHERE id = ?', note, o.id);
-  run('INSERT INTO messages (order_id, sender_id, body, at) VALUES (?,?,?,?)', o.id, me.id, `Flagged a problem: ${note}`, now());
+  // The Kainat team reads the full note; the order thread, which the other side reads, hides any number.
+  run('INSERT INTO messages (order_id, sender_id, body, at) VALUES (?,?,?,?)', o.id, me.id, `Flagged a problem: ${maskPhones(note)}`, now());
 });
 
 route('POST', '/api/orders/:id/messages', 'user', ({ me, params, body }) => {
   const o = mustOrder(params.id, me);
-  const text = str(body.body, 1000) || fail(400, 'Type a message');
+  const raw = str(body.body, 1000) || fail(400, 'Type a message');
+  const { text, masked } = me.is_admin ? { text: raw, masked: false } : guardContact(me, raw, 'order_message', { mask: wantsMask(body), refId: o.id });
   run('INSERT INTO messages (order_id, sender_id, body, at) VALUES (?,?,?,?)', o.id, me.id, text, now());
+  if (masked) run('INSERT INTO messages (order_id, sender_id, body, at) VALUES (?,?,?,?)', o.id, null, 'Kainat: a phone number was removed from this message. Keep contact on Kainat so the order stays protected.', now());
   const other = o.buyer_id === me.id ? o.supplier_id : o.buyer_id;
   notify(other, 'order_message', { body: `Message from ${me.name} about order #${o.id}: ${text}`, buttons: ['Open order'],
     context: { type: 'order', order_id: o.id } });
@@ -1292,6 +1409,11 @@ function waReply(me, text, button, context) {
     const o = get('SELECT * FROM orders WHERE id = ?', lastCtx.order_id);
     if (o && o.status === 'pending') { declineOrder(o, me, text); return waSend(me.id, `Order #${o.id} declined. The buyer has been told.`); }
   }
+  // A phone number sent here would otherwise be read as a price (0300 1234567 → Rs 3,001,234,567).
+  if (phoneIn(text)) {
+    run('INSERT INTO contact_attempts (business_id, place, sent_masked, at) VALUES (?,?,?,?)', me.id, 'whatsapp', 0, now());
+    return waSend(me.id, 'Phone numbers can’t be shared with buyers on Kainat. When contact moves outside Kainat the risk goes with it, and it can harm your supplier profile. Reply with your price, quantity and token %, for example: 305000 8 20');
+  }
   if (me.role === 'supplier') {
     const parsed = parseQuoteText(text);
     let requestId = lastCtx.request_id;
@@ -1364,6 +1486,7 @@ route('GET', '/api/admin/overview', 'admin', () => {
       pending_models: get("SELECT COUNT(*) n FROM models WHERE status = 'pending'").n,
       disputes: get('SELECT COUNT(*) n FROM orders WHERE disputed = 1').n,
       low_ratings: R.lowCount(),
+      number_attempts: get('SELECT COUNT(*) n FROM contact_attempts WHERE sent_masked = 0 AND at > ?', new Date(nowMs() - 30 * DAY).toISOString()).n,
       wa_waiting: get("SELECT COUNT(*) n FROM notifications WHERE wa_status IN ('queued','held')").n,
       docs_to_check: get("SELECT COUNT(*) n FROM businesses WHERE role = 'supplier' AND docs_status IN ('pending','received')").n,
       open_requests: get("SELECT COUNT(*) n FROM requests WHERE status = 'open'").n,
@@ -1374,7 +1497,8 @@ route('GET', '/api/admin/overview', 'admin', () => {
 route('GET', '/api/admin/businesses', 'admin', ({ query }) => {
   let rows = all("SELECT * FROM businesses WHERE role <> 'admin' ORDER BY role DESC, name");
   if (query.role) rows = rows.filter((b) => b.role === query.role);
-  return rows.map((b) => ({ ...b, deals: deliveredCount(b.id), listings: get('SELECT COUNT(*) n FROM listings WHERE supplier_id = ?', b.id).n }));
+  return rows.map((b) => ({ ...b, deals: deliveredCount(b.id), listings: get('SELECT COUNT(*) n FROM listings WHERE supplier_id = ?', b.id).n,
+    number_attempts: contactAttempts(b.id) }));
 });
 
 route('PUT', '/api/admin/businesses/:id', 'admin', ({ params, body }) => {
@@ -1565,6 +1689,14 @@ const JOBS = {
     return sendPriceCheck({ onlyUnconfirmed: true });
   },
   flush: N.flushWaiting,
+  // Housekeeping: old code requests and ended sessions.
+  cleanup: () => {
+    const a = Number(run('DELETE FROM otp_requests WHERE at < ?', new Date(nowMs() - DAY).toISOString()).changes);
+    const b = Number(run('DELETE FROM sessions WHERE COALESCE(last_seen, created_at) < ? OR created_at < ?',
+      new Date(nowMs() - SESSION_IDLE_MS).toISOString(), new Date(nowMs() - SESSION_MAX_MS).toISOString()).changes);
+    const c = Number(run('DELETE FROM otps WHERE at < ?', new Date(nowMs() - OTP_TTL_MS).toISOString()).changes);
+    return a + b + c;
+  },
 };
 
 export function runJobs(names = Object.keys(JOBS)) {

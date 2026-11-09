@@ -1,6 +1,6 @@
 // In-app chat between a buyer and a supplier: share requirements, photos, spec sheets, and see bids in the same thread.
 import { route, render, shell, navFor, api, esc, rs, num, ago, toast, state, run, $, $$, typeLabel, emptyState, refreshMe,
-  fileToDataUrl, icons, poll, bizBadges, statusBadge } from './core.js';
+  fileToDataUrl, icons, poll, bizBadges, statusBadge, sendGuarded, watchPhone, phoneHintHtml } from './core.js';
 
 route('/chats', async ({ render }) => {
   await refreshMe();
@@ -60,6 +60,7 @@ route('/chat/:id', async ({ params, render }) => {
       ${bidBar}
       <div class="stack" id="thread" style="gap:8px">${d.messages.map((m) => bubble(m, me, c.id)).join('') || '<p class="small muted center">Say hello. Share the model, quantity, site and anything that matters: warranty, delivery time, batch, photos.</p>'}</div>
       <div id="att" class="row small hidden"><span class="badge" id="attname"></span><button type="button" class="link-btn" id="attclear">Remove</button></div>
+      ${phoneHintHtml('numhint')}
       <form id="send" class="composer" style="position:sticky;bottom:72px;background:var(--bg);padding:6px 0">
         <label class="icon-btn" title="Attach a photo or PDF" style="border:1px solid var(--line-2);background:var(--card)">${icons.clip}<input type="file" id="file" accept="image/*,application/pdf" class="hidden" aria-label="Attach a photo or PDF"></label>
         <input name="body" placeholder="Message ${esc(c.other.name)}" aria-label="Message" autocomplete="off">
@@ -93,12 +94,16 @@ route('/chat/:id', async ({ params, render }) => {
     if (!body && !f) return;
     run(e.submitter, async () => {
       if (f && f.size > 6 * 1024 * 1024) throw new Error('Attachment is larger than 6 MB');
-      await api('POST', `/api/chats/${c.id}/messages`, { body, attachment: f ? await fileToDataUrl(f) : undefined, attachment_name: f?.name });
-      e.target.body.value = '';
+      const attachment = f ? await fileToDataUrl(f) : undefined;
+      const sent = await sendGuarded((mask) => api('POST', `/api/chats/${c.id}/messages`, { body, attachment, attachment_name: f?.name, mask }),
+        { text: body, partner: c.other.name });
+      if (!sent) { e.target.body.focus(); return; } // they chose to edit the message
+      e.target.body.value = ''; e.target.body.dispatchEvent(new Event('input'));
       file.value = ''; file.onchange();
       await pull();
     });
   };
+  watchPhone($('#send').body, $('#numhint'));
   poll(pull, 3000);
   void toast; void $$;
 });

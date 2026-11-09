@@ -140,6 +140,34 @@ These are later phases in the PRD:
 - `public/js/` holds the screens: `auth.js`, `supplier.js`, `buyer.js`, `chat.js`, `shared.js` and `admin.js`. `core.js` holds the router, shell, live polling and helpers.
 - `tests/unit`, `tests/integration` and `tests/e2e` hold the test suites; `tests/helpers/server.js` starts a throwaway server for them. `scripts/smoke-test.js` is the original API journey test. `scripts/reset.js` wipes the data. `scripts/backup.js` and `scripts/schedule-backup.ps1` handle backups.
 
-## Security note
+## Security
 
-This is a demo build. The sign-in code is returned by the API and shown on screen, and code attempts are not rate-limited. Do not expose it to the internet until real SMS or WhatsApp delivery replaces that.
+**Sign-in codes**
+- **Development:** the code is shown on screen and the demo accounts are listed. This is the default.
+- **Production** (`NODE_ENV=production`):
+  - Codes are never returned to the browser and demo accounts are hidden.
+  - Codes go through an SMS or WhatsApp gateway set by `SMS_GATEWAY_URL` (and `SMS_GATEWAY_TOKEN`). The gateway receives `{ to, channel, text }`.
+  - Without a gateway, sign-in refuses to start rather than pretending a code was sent.
+- **Limits:** 5 wrong tries per code. Codes for one number are at least 30 seconds apart, with at most 6 an hour. At most 30 codes an hour come from one network address. Override with `OTP_MAX_PER_HOUR`, `OTP_MIN_GAP_SEC` and `OTP_MAX_PER_IP_HOUR`.
+
+**Sessions**
+- **Expiry:** a session ends after 30 days without use, and always 90 days after sign-in.
+- **Sign out everywhere:** available in Profile.
+- **Secure cookies:** cookies are marked `Secure` over HTTPS. Behind a proxy such as Caddy or Nginx, set `TRUST_PROXY=1` so the forwarded protocol and address are trusted.
+
+**Uploads**
+- Uploads are checked by their real content (PNG, JPEG, WebP or PDF), not by the name or the declared type.
+
+**Phone numbers stay on Kainat**
+- **Never shown:** numbers are not shown to other businesses, even after an order. Each business and the Kainat team still see their own.
+- **Blocked or hidden in anything the other side reads:**
+  - chats, order messages, request descriptions, order addresses and notes, quote notes
+  - decline reasons and flagged problems
+  - business details, ratings and replies
+  - WhatsApp replies
+- **What senders see:**
+  - a warning as they type
+  - when sending, an explanation that the risk goes with a conversation that moves outside Kainat, and that it can harm a supplier's profile
+  - a choice to send the message without the number
+- **What the Kainat team sees:** attempts are counted per business, without storing the number itself. Repeat attempts lower a supplier's place in request matching, and the admin console shows the counts.
+- **One detector:** the same detector (`public/js/phone.js`) is used by the server and the screens.
