@@ -1,0 +1,11 @@
+# Live data: database, uploads, logs and server pid. Backed up separately, never committed.
+data/
+backups/
+node_modules/
+*.log
+*.pid
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.*

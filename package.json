@@ -1,0 +1,23 @@
+{
+  "name": "kainat",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Two-sided procurement marketplace for solar equipment: buyer requests, supplier quotes, live listings, trade history.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "reset": "node scripts/reset.js",
+    "backup": "node --disable-warning=ExperimentalWarning scripts/backup.js",
+    "test:unit": "node --disable-warning=ExperimentalWarning --test --test-concurrency=4 \"tests/unit/*.test.js\"",
+    "test:integration": "node --disable-warning=ExperimentalWarning --test --test-concurrency=4 \"tests/integration/*.test.js\"",
+    "test:e2e": "node --disable-warning=ExperimentalWarning --test --test-concurrency=1 \"tests/e2e/*.test.js\"",
+    "test:smoke": "node --disable-warning=ExperimentalWarning scripts/smoke-test.js",
+    "test": "npm run test:unit && npm run test:integration && npm run test:smoke && npm run test:e2e"
+  },
+  "devDependencies": {
+    "playwright-core": "1.64.1"
+  }
+}
